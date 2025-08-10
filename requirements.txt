@@ -1,0 +1,11 @@
+flask
+flask_socketio
+yfinance
+twilio
+schedule
+python-dotenv
+imaplib2
+pandas
+matplotlib
+requests
+nginx

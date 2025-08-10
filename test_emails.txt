@@ -1,0 +1,6 @@
+SUBJECT: TEST Executed: Buy 25 BITX @ $61.299
+BODY: Account: XXXXX-0647
+Order type: Buy
+Security: BITX
+Execution price: $61.299
+Quantity executed: 25
