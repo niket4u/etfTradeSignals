@@ -1,0 +1,45 @@
+ETF Trade Signals Bot — Features Overview
+
+1. Key Features
+- Automated trade signal generation based on broker email parsing (account XXXXX-0647 only).
+- Real-time SMS alerts via Twilio, with optional WhatsApp integration.
+- Two-way SMS control to add/remove tickers, send buy/sell signals, and list tracked ETFs.
+- Weekly automatic ticker info update (name + strategy) from market data.
+- Secure, remotely accessible dashboard using Cloudflare Tunnel.
+- Auto-port detection to avoid conflicts on Raspberry Pi.
+- Test mode to safely validate before going live.
+- Multi-day position tracking with trade history logs.
+- Loss limit and gain target controls for risk management.
+
+2. Supported Assets
+- US-traded ETFs only (no single-name stocks).
+- Crypto ETFs (Bitcoin, Ethereum, etc.).
+- Leveraged ETFs (2x, 3x Bull/Bear).
+- Inverse ETFs for hedging.
+
+3. Example Use Cases
+- Day traders who need quick ETF signals without full automation.
+- Investors who want to track leveraged ETF positions via mobile.
+- Traders wanting secure remote dashboard access without exposing Pi directly.
+
+4. SMS Command Examples
+ADD: SOXL     → Adds SOXL with details fetched from web
+BUY: UVXY     → Logs manual buy signal
+SELL: BITX    → Logs manual sell signal
+LIST          → Returns all tracked tickers
+
+5. Security
+- .env file excluded from GitHub (contains all credentials).
+- SMS control restricted to allowed numbers only.
+- Dashboard secured via Cloudflare Tunnel (no open ports to internet).
+
+6. Technical Highlights
+- Built in Python with Flask for the dashboard.
+- Uses IMAP for Gmail integration.
+- Fetches ETF details from Yahoo Finance API.
+- Scheduled jobs run in background (housekeeping, checks, alerts).
+
+7. Benefits
+- Flexible: Works with any broker that sends trade confirmation emails.
+- Portable: Runs on Raspberry Pi with minimal resources.
+- Expandable: Easy to add new alert channels or trading logic.
