@@ -1,0 +1,93 @@
+ETF Trade Signals Bot — Setup Guide
+
+1. Overview
+- Raspberry Pi–hosted bot that reads broker emails (account XXXXX-0647 only).
+- Generates ETF trade signals via SMS (and optional WhatsApp).
+- Two-way SMS control for tickers, risk limits, and modes.
+- Secure dashboard via Cloudflare Tunnel.
+- Supports crypto ETFs, leveraged ETFs, inverse ETFs (no single-name stocks).
+- Fully local, no command line needed after install.
+
+2. Prerequisites
+- Raspberry Pi 3B+ or newer with Raspberry Pi OS.
+- GitHub account with etfTradeSignals repo.
+- Gmail account with IMAP enabled + App Password.
+- Twilio account with SMS-capable number.
+- Cloudflare account with domain.
+- Internet connection.
+
+3. Install on Raspberry Pi
+git clone https://github.com/niket4u/etfTradeSignals.git
+cd etfTradeSignals
+chmod +x install.sh
+./install.sh
+
+4. Create .env File
+cp .env.example .env
+nano .env
+
+Fill in:
+- GMAIL_USER, GMAIL_PASS (app password).
+- Twilio credentials.
+- Allowed SMS numbers.
+- Leave DASHBOARD_URL blank until Cloudflare setup.
+- Set MODE=test for initial runs.
+
+5. Gmail IMAP Setup
+- Enable IMAP in Gmail settings.
+- Turn on 2FA in Google account.
+- Create App Password for "Mail" and paste into .env.
+
+6. Twilio SMS Setup
+- Buy Twilio number with SMS.
+- Copy SID and Auth Token into .env.
+- Set webhook URL in Twilio console (will use Cloudflare domain + /sms).
+
+7. Cloudflare Tunnel Setup
+sudo apt install cloudflared
+cloudflared tunnel login
+cloudflared tunnel create etfbot
+
+Create config file (replace <Tunnel-UUID>):
+tunnel: <Tunnel-UUID>
+credentials-file: /home/pi/.cloudflared/<Tunnel-UUID>.json
+ingress:
+  - hostname: etfbot.yourdomain.com
+    service: http://localhost:5000
+  - service: http_status:404
+
+Run:
+cloudflared tunnel run etfbot
+
+Update .env:
+DASHBOARD_URL=https://etfbot.yourdomain.com
+
+8. Start Bot
+source venv/bin/activate
+python3 etf_bot.py
+Dashboard will be at your DASHBOARD_URL.
+
+9. Two-Way SMS Commands
+ADD: SOXL
+REMOVE: BITX
+BUY: UVXY
+SELL: TQQQ
+LIST
+
+10. Weekly Housekeeping
+- Runs Saturday 11 AM.
+- Updates ticker names & strategies.
+- Sends SMS + email summary.
+
+11. Testing Mode
+- MODE=test → only processes emails with TEST in subject.
+- Switch to production for live trades.
+
+12. Security
+- .env in .gitignore.
+- Only allowed numbers can send commands.
+- Cloudflare Tunnel protects dashboard.
+
+13. Update Bot
+git pull origin main
+Restart after update.
