@@ -1,10 +1,50 @@
-from flask import Flask, request, jsonify
-import schedule, threading, time
+from flask import Flask, request, jsonify, render_template
+import csv, schedule, threading, time
 from config import get_free_port, MODE, ALLOWED_SMS_NUMBERS
-from trade_manager import add_ticker, log_trade
+from trade_manager import add_ticker, log_trade, TICKERS_FILE
 from alerts import send_alert
 
 app = Flask(__name__)
+
+
+# --- Web dashboard ---
+
+@app.route("/", methods=["GET"])
+def dashboard():
+    return render_template("index.html")
+
+
+@app.route("/api/tickers", methods=["GET"])
+def api_tickers():
+    tickers = []
+    try:
+        with open(TICKERS_FILE, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                tickers.append({
+                    "ticker": row["Ticker"],
+                    "name": row["Name"],
+                    "strategy": row["Strategy"],
+                })
+    except FileNotFoundError:
+        pass
+    return jsonify({"tickers": tickers})
+
+
+@app.route("/api/add-ticker", methods=["POST"])
+def api_add_ticker():
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get("ticker") or "").strip().upper()
+    if not symbol:
+        return jsonify({"error": "Ticker symbol is required."}), 400
+    try:
+        name, strategy = add_ticker(symbol)
+        return jsonify({"ticker": symbol, "name": name, "strategy": strategy}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# --- SMS webhook ---
 
 @app.route("/sms", methods=["POST"])
 def sms_webhook():

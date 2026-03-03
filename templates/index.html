@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETF Trade Signals</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>ETF Trade Signals</h1>
+      <p class="subtitle">Tracked assets and signal dashboard</p>
+    </header>
+
+    <!-- Add Asset -->
+    <section class="card">
+      <h2>Add Asset</h2>
+      <form id="add-asset-form">
+        <div class="form-row">
+          <input
+            type="text"
+            id="ticker-input"
+            name="ticker"
+            placeholder="Ticker symbol (e.g. SPY, QQQ, TQQQ)"
+            autocomplete="off"
+            autocapitalize="characters"
+            required
+          >
+          <button type="submit" id="add-btn">Add Asset</button>
+        </div>
+        <p id="form-message" class="form-message hidden"></p>
+      </form>
+    </section>
+
+    <!-- Tracked Assets Table -->
+    <section class="card">
+      <h2>Tracked Assets</h2>
+      <div id="tickers-container">
+        <table id="tickers-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Name</th>
+              <th>Strategy</th>
+            </tr>
+          </thead>
+          <tbody id="tickers-body">
+            <tr id="loading-row">
+              <td colspan="3" class="empty-state">Loading&hellip;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const API_BASE = '';
+
+    async function loadTickers() {
+      try {
+        const res = await fetch(`${API_BASE}/api/tickers`);
+        const data = await res.json();
+        renderTickers(data.tickers);
+      } catch {
+        renderError('Failed to load tickers.');
+      }
+    }
+
+    function renderTickers(tickers) {
+      const tbody = document.getElementById('tickers-body');
+      if (!tickers || tickers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No assets tracked yet. Add one above.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = tickers.map(t => `
+        <tr>
+          <td class="ticker-symbol">${escape(t.ticker)}</td>
+          <td>${escape(t.name)}</td>
+          <td><span class="badge">${escape(t.strategy)}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    function renderError(msg) {
+      const tbody = document.getElementById('tickers-body');
+      tbody.innerHTML = `<tr><td colspan="3" class="empty-state error">${msg}</td></tr>`;
+    }
+
+    function escape(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function showMessage(msg, isError) {
+      const el = document.getElementById('form-message');
+      el.textContent = msg;
+      el.className = 'form-message ' + (isError ? 'error' : 'success');
+      setTimeout(() => { el.className = 'form-message hidden'; }, 4000);
+    }
+
+    document.getElementById('add-asset-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('ticker-input');
+      const btn = document.getElementById('add-btn');
+      const ticker = input.value.trim().toUpperCase();
+      if (!ticker) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Adding…';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/add-ticker`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showMessage(`✓ Added ${data.ticker} — ${data.name} (${data.strategy})`, false);
+          input.value = '';
+          loadTickers();
+        } else {
+          showMessage(data.error || 'Failed to add ticker.', true);
+        }
+      } catch {
+        showMessage('Network error. Please try again.', true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Add Asset';
+      }
+    });
+
+    loadTickers();
+  </script>
+</body>
+</html>
