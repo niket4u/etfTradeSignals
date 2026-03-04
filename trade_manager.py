@@ -3,6 +3,7 @@ import yfinance as yf
 from datetime import datetime
 
 TICKERS_FILE       = "tickers.csv"
+REMOVED_FILE       = "removed_tickers.csv"
 TRADE_HISTORY_FILE = "trade_history.csv"
 POSITIONS_FILE     = "open_positions.csv"
 MONTHLY_PNL_FILE   = "monthly_pnl.csv"
@@ -27,11 +28,67 @@ def add_ticker(symbol):
 
 def classify_strategy(name):
     n = name.lower()
-    if "3x" in n or "triple" in n: return "3x Bull"
-    if "2x" in n:                  return "2x Bull"
-    if "bear" in n or "inverse" in n: return "Inverse"
-    if "bitcoin" in n or "crypto" in n: return "Crypto ETF"
-    return "Unknown"
+    if "3x" in n or "triple" in n or "ultrapro" in n: return "3x Bull"
+    if "2x" in n or "double" in n:                    return "2x Bull"
+    if "bear" in n or "inverse" in n or "short" in n: return "Inverse"
+    if "bitcoin" in n or "crypto" in n:               return "Crypto ETF"
+    if "nasdaq" in n or "qqq" in n:                   return "Nasdaq"
+    if "s&p" in n or "sp 500" in n or " 500" in n:   return "Index ETF"
+    if "russell" in n or "small cap" in n:            return "Small Cap"
+    if "gold" in n or "silver" in n or "precious" in n: return "Commodity"
+    if "bond" in n or "treasury" in n:                return "Bond ETF"
+    if "dividend" in n or "income" in n:              return "Dividend"
+    if "semiconductor" in n or "innovation" in n:     return "Sector ETF"
+    if "energy" in n or "oil" in n:                   return "Sector ETF"
+    return "ETF"
+
+
+# ── Removed tickers (persistent blocklist) ────────────────────────────────────
+def get_removed_tickers():
+    """Return set of removed/blocked ticker symbols."""
+    removed = set()
+    try:
+        with open(REMOVED_FILE) as f:
+            for line in f:
+                t = line.strip().upper()
+                if t:
+                    removed.add(t)
+    except FileNotFoundError:
+        pass
+    return removed
+
+def persist_remove(symbol):
+    """Add symbol to removed list and strip from tickers.csv."""
+    symbol = symbol.strip().upper()
+    # Add to removed list
+    removed = get_removed_tickers()
+    if symbol not in removed:
+        with open(REMOVED_FILE, "a") as f:
+            f.write(symbol + "\n")
+    # Remove from tickers.csv
+    try:
+        rows = []
+        with open(TICKERS_FILE, newline="") as f:
+            for row in csv.DictReader(f):
+                if row["Ticker"].strip().upper() != symbol:
+                    rows.append(row)
+        with open(TICKERS_FILE, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["Ticker", "Name", "Strategy"])
+            for row in rows:
+                w.writerow([row["Ticker"], row["Name"], row["Strategy"]])
+    except FileNotFoundError:
+        pass
+
+def persist_unremove(symbol):
+    """Remove symbol from the blocked list (when re-adding)."""
+    symbol = symbol.strip().upper()
+    removed = get_removed_tickers()
+    if symbol in removed:
+        removed.discard(symbol)
+        with open(REMOVED_FILE, "w") as f:
+            for t in sorted(removed):
+                f.write(t + "\n")
 
 def log_trade(trade_type, ticker, price, qty, source="manual"):
     with open(TRADE_HISTORY_FILE, "a", newline="") as f:

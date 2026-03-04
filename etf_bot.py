@@ -14,6 +14,7 @@ from textblob import TextBlob
 from config import get_free_port, NEWS_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ALLOWED_SMS_NUMBERS
 from trade_manager import (
     add_ticker as _add_ticker, log_trade, TICKERS_FILE,
+    classify_strategy, get_removed_tickers, persist_remove, persist_unremove,
     get_positions, upsert_position, remove_position, clear_positions,
     get_monthly_pnl, record_monthly_pnl, clear_monthly_pnl,
 )
@@ -22,12 +23,14 @@ from alerts import send_alert
 app = Flask(__name__)
 
 # ── Tracked assets ────────────────────────────────────────────────────────────
-TRACKED_ETFS = {
+BUILTIN_ETFS = {
     "SPY":  "S&P 500 ETF",    "QQQ":  "Nasdaq 100 ETF",
     "IWM":  "Russell 2000",   "GLD":  "Gold ETF",
     "TLT":  "20yr Treasury",  "XLE":  "Energy ETF",
     "ARKK": "ARK Innovation", "SOXX": "Semiconductors",
 }
+TRACKED_ETFS   = dict(BUILTIN_ETFS)   # mutable; extended from CSV at startup
+BUILTIN_CRYPTO = {"bitcoin", "ethereum", "solana", "binancecoin"}
 TRACKED_CRYPTO = {
     "bitcoin": "BTC", "ethereum": "ETH",
     "solana":  "SOL", "binancecoin": "BNB",
@@ -52,11 +55,20 @@ _HEADERS = {"User-Agent": "signal-bot/4.0 (raspberry-pi; personal use)"}
 
 # ── Load user-added tickers from CSV into watchlist ───────────────────────────
 def _load_csv_tickers():
+    removed = get_removed_tickers()
+    # Remove blocked tickers from built-ins
+    for t in list(TRACKED_ETFS.keys()):
+        if t in removed:
+            del TRACKED_ETFS[t]
+    for c in list(TRACKED_CRYPTO.keys()):
+        if TRACKED_CRYPTO[c] in removed or c.upper() in removed:
+            del TRACKED_CRYPTO[c]
+    # Add CSV-added tickers (skip removed)
     try:
         with open(TICKERS_FILE, newline="") as f:
             for row in csv.DictReader(f):
                 t = row["Ticker"].strip().upper()
-                if t and t not in TRACKED_ETFS:
+                if t and t not in TRACKED_ETFS and t not in removed:
                     TRACKED_ETFS[t] = row["Name"] or t
     except FileNotFoundError:
         pass
@@ -425,18 +437,30 @@ def api_telegram_test():
     return jsonify({"status": "sent"})
 
 
-# ── Routes: Add Asset (watchlist management) ──────────────────────────────────
+# ── Routes: Add / Remove Asset (watchlist management) ─────────────────────────
 @app.route("/api/tickers")
 def api_tickers():
-    tickers = []
+    """Return ALL tracked assets: built-in ETFs + CSV-added ETFs + crypto."""
+    _load_csv_tickers()
+    csv_tickers = set()
     try:
         with open(TICKERS_FILE, newline="") as f:
-            for row in csv.DictReader(f):
-                tickers.append({"ticker":   row["Ticker"],
-                                 "name":     row["Name"],
-                                 "strategy": row["Strategy"]})
+            csv_tickers = {row["Ticker"].strip().upper() for row in csv.DictReader(f)}
     except FileNotFoundError:
         pass
+
+    tickers = []
+    # ETFs (built-in + CSV-added)
+    for ticker, name in TRACKED_ETFS.items():
+        source   = "builtin" if ticker in BUILTIN_ETFS else "custom"
+        strategy = classify_strategy(name)
+        tickers.append({"ticker": ticker, "name": name,
+                         "strategy": strategy, "source": source, "type": "ETF"})
+    # Crypto (always built-in)
+    for coin_id, sym in TRACKED_CRYPTO.items():
+        tickers.append({"ticker": sym, "coin_id": coin_id,
+                         "name": f"{sym} ({coin_id.title()})",
+                         "strategy": "Crypto", "source": "builtin", "type": "Crypto"})
     return jsonify({"tickers": tickers})
 
 @app.route("/api/add-ticker", methods=["POST"])
@@ -446,11 +470,25 @@ def api_add_ticker():
     if not symbol:
         return jsonify({"error": "Ticker symbol is required."}), 400
     try:
+        persist_unremove(symbol)          # un-block if previously removed
         name, strategy = _add_ticker(symbol)
-        TRACKED_ETFS[symbol] = name   # live-add to watchlist
+        TRACKED_ETFS[symbol] = name       # live-add to watchlist
         return jsonify({"ticker": symbol, "name": name, "strategy": strategy}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/remove-ticker", methods=["POST"])
+def api_remove_ticker():
+    data   = request.get_json(silent=True) or {}
+    symbol = (data.get("ticker") or "").strip().upper()
+    coin   = (data.get("coin_id") or "").strip().lower()
+    if not symbol:
+        return jsonify({"error": "Ticker required"}), 400
+    persist_remove(symbol)
+    TRACKED_ETFS.pop(symbol, None)
+    if coin and coin in TRACKED_CRYPTO:
+        del TRACKED_CRYPTO[coin]
+    return jsonify({"removed": symbol})
 
 
 # ── Routes: PWA ───────────────────────────────────────────────────────────────
@@ -480,7 +518,7 @@ def manifest():
 
 @app.route("/sw.js")
 def service_worker():
-    sw = """const CACHE='signal-v5';const OFFLINE=['/'];
+    sw = """const CACHE='signal-v6';const OFFLINE=['/'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(OFFLINE)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{if(e.request.url.includes('/api/'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request).then(r=>r||caches.match('/'))));});"""

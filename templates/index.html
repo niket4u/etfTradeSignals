@@ -395,6 +395,45 @@
     background: var(--muted); color: var(--text); border-radius: 2px;
   }
   .tracked-empty { color: var(--dim); font-size: 11px; padding: 16px 0; text-align: center; font-style: italic; }
+  .tracked-remove {
+    background: none; border: 1px solid rgba(255,64,96,0.3); color: var(--red);
+    font-size: 11px; line-height: 1; padding: 3px 7px; border-radius: 3px;
+    cursor: pointer; flex-shrink: 0; opacity: 0.7;
+  }
+  .tracked-remove:hover { opacity: 1; background: rgba(255,64,96,0.08); }
+
+  /* ── Quick-add bar on Signals page ── */
+  .signals-add-bar {
+    display: flex; gap: 8px; padding: 10px 14px 2px;
+  }
+  .signals-add-input {
+    flex: 1; background: var(--surf2); border: 1px solid var(--border);
+    color: var(--text); font-family: Arial, Helvetica, sans-serif;
+    font-size: 13px; padding: 8px 10px; border-radius: 4px; outline: none;
+    min-width: 0;
+  }
+  .signals-add-input:focus { border-color: var(--accent); }
+  .signals-add-input::placeholder { color: var(--dim); }
+  .signals-add-btn {
+    background: var(--surf2); color: var(--accent); border: 1px solid var(--accent);
+    font-family: Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 700;
+    padding: 0 14px; border-radius: 4px; cursor: pointer; flex-shrink: 0;
+    line-height: 1;
+  }
+  .signals-add-btn:active { background: var(--muted); }
+  .signals-add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .signals-add-msg { font-size: 11px; padding: 4px 14px 4px; }
+  .signals-add-msg.hidden  { display: none; }
+  .signals-add-msg.success { color: var(--green); }
+  .signals-add-msg.error   { color: var(--red); }
+
+  /* ── Remove button on signal cards ── */
+  .card-remove {
+    background: none; border: none; color: rgba(255,255,255,0.3);
+    font-size: 13px; cursor: pointer; padding: 0 0 0 6px; line-height: 1;
+    flex-shrink: 0;
+  }
+  .card-remove:hover { color: var(--red); }
 
   /* scrollbar */
   ::-webkit-scrollbar { width: 2px; }
@@ -443,6 +482,14 @@
 
   <!-- Signals page -->
   <div class="scroll-area" id="mainPage">
+    <div class="signals-add-bar">
+      <input type="text" class="signals-add-input" id="signalsAddInput"
+             placeholder="Add ticker (e.g. QQQ, TQQQ)"
+             autocomplete="off" autocapitalize="characters"
+             onkeydown="if(event.key==='Enter')quickAddTicker()">
+      <button class="signals-add-btn" id="signalsAddBtn" onclick="quickAddTicker()" title="Add ticker">＋</button>
+    </div>
+    <div id="signalsAddMsg" class="signals-add-msg hidden"></div>
     <div class="sec-label"><span class="pulse-dot"></span>US ETFs</div>
     <div class="card-grid" id="etfGrid"><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
     <div class="sec-label"><span class="pulse-dot"></span>Crypto</div>
@@ -640,18 +687,22 @@ function setMacroStrip(vix, pc, fg, ts, total) {
 }
 
 function renderCard(item) {
-  const sig = item.signal, cls = sig.signal.toLowerCase();
-  const price = fmtP(item.price, item.type);
-  const chg   = item.change24 != null
+  const sig    = item.signal, cls = sig.signal.toLowerCase();
+  const price  = fmtP(item.price, item.type);
+  const chg    = item.change24 != null
     ? `<span class="card-chg ${item.change24>=0?'pos':'neg'}">${item.change24>=0?'▲':'▼'}${Math.abs(item.change24).toFixed(2)}%</span>` : '';
-  const path  = item.type === 'ETF' ? `etf/${item.ticker}` : `crypto/${item.coin_id}`;
+  const path   = item.type === 'ETF' ? `etf/${item.ticker}` : `crypto/${item.coin_id}`;
+  const coinId = item.coin_id || '';
   return `<div class="card ${cls}" onclick="openSheet('${path}')">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
         <div class="card-ticker">${item.ticker}</div>
         <div class="card-name">${item.name}</div>
       </div>
-      <div class="card-badge ${sig.signal}">${sig.signal}</div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <div class="card-badge ${sig.signal}">${sig.signal}</div>
+        <button class="card-remove" onclick="event.stopPropagation();removeAsset('${item.ticker}','${coinId}')" title="Remove ${item.ticker}">✕</button>
+      </div>
     </div>
     <div class="card-mid">
       <div>
@@ -715,7 +766,10 @@ function renderTrackedList(tickers) {
         <div class="tracked-sym">${esc(t.ticker)}</div>
         <div class="tracked-name">${esc(t.name)}</div>
       </div>
-      <span class="tracked-strat">${esc(t.strategy)}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="tracked-strat">${esc(t.strategy)}</span>
+        <button class="tracked-remove" onclick="removeAsset('${esc(t.ticker)}','${esc(t.coin_id||'')}')" title="Remove ${esc(t.ticker)}">✕</button>
+      </div>
     </div>`).join('');
 }
 
@@ -741,6 +795,7 @@ async function submitAddTicker() {
       msg.className = 'add-msg success';
       input.value = '';
       loadTrackedAssets();
+      loadDashboard();
     } else {
       msg.textContent = data.error || 'Failed to add ticker.';
       msg.className = 'add-msg error';
@@ -756,6 +811,66 @@ async function submitAddTicker() {
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Remove asset ──────────────────────────────────────────────────────────
+async function removeAsset(ticker, coinId) {
+  if (!confirm(`Remove ${ticker} from watchlist?`)) return;
+  try {
+    const body = {ticker};
+    if (coinId) body.coin_id = coinId;
+    const r = await fetch('/api/remove-ticker', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (r.ok) {
+      loadDashboard();
+      loadTrackedAssets();
+    } else {
+      const d = await r.json();
+      alert(d.error || 'Failed to remove asset.');
+    }
+  } catch(e) {
+    console.error('Remove failed:', e);
+  }
+}
+
+// ── Quick-add on Signals page ──────────────────────────────────────────────
+async function quickAddTicker() {
+  const input = document.getElementById('signalsAddInput');
+  const btn   = document.getElementById('signalsAddBtn');
+  const msg   = document.getElementById('signalsAddMsg');
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) { input.focus(); return; }
+
+  btn.disabled = true; btn.textContent = '…';
+  msg.className = 'signals-add-msg hidden';
+
+  try {
+    const r = await fetch('/api/add-ticker', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ticker})
+    });
+    const data = await r.json();
+    if (r.ok) {
+      msg.textContent = `✓ ${data.ticker} added`;
+      msg.className = 'signals-add-msg success';
+      input.value = '';
+      loadDashboard();
+      loadTrackedAssets();
+    } else {
+      msg.textContent = data.error || 'Failed to add ticker.';
+      msg.className = 'signals-add-msg error';
+    }
+  } catch {
+    msg.textContent = 'Network error.';
+    msg.className = 'signals-add-msg error';
+  } finally {
+    btn.disabled = false; btn.textContent = '＋';
+    setTimeout(() => { msg.className = 'signals-add-msg hidden'; }, 3000);
+  }
 }
 
 // ── Detail Sheet ──────────────────────────────────────────────────────────
