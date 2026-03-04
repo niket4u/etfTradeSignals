@@ -3,136 +3,499 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SIGNAL — Diagnostic</title>
+<title>SIGNAL — Component Test</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: Arial, Helvetica, sans-serif;
     background: #080c10; color: #c8d8e8;
-    padding: 24px 20px; font-size: 13px; line-height: 1.6;
+    padding: 20px; font-size: 13px; line-height: 1.5;
   }
-  h1 { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+  h1 { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 2px; }
   h1 em { color: #00d4ff; font-style: normal; }
-  .subtitle { color: #4a6070; font-size: 11px; margin-bottom: 24px; }
-  .card { background: #0d1219; border: 1px solid #1a2332; border-radius: 6px; padding: 16px; margin-bottom: 14px; }
-  .card-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #4a6070; margin-bottom: 12px; }
-  .row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #111820; }
-  .row:last-child { border-bottom: none; }
-  .row-label { color: #c8d8e8; }
-  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 3px; }
-  .ok    { background: rgba(0,230,118,0.1); color: #00e676; border: 1px solid rgba(0,230,118,0.3); }
-  .warn  { background: rgba(255,215,64,0.1);color: #ffd740; border: 1px solid rgba(255,215,64,0.3); }
-  .err   { background: rgba(255,64,96,0.1); color: #ff4060; border: 1px solid rgba(255,64,96,0.3); }
-  .val   { color: #00d4ff; font-weight: 700; }
+  .subtitle { color: #4a6070; font-size: 11px; margin-bottom: 20px; }
   a { color: #00d4ff; text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .back { display: inline-block; margin-bottom: 20px; font-size: 12px; color: #4a6070; }
+  .back { display: inline-block; margin-bottom: 16px; font-size: 12px; color: #4a6070; }
   .back:hover { color: #00d4ff; }
+
+  /* Cards */
+  .card { background: #0d1219; border: 1px solid #1a2332; border-radius: 6px;
+          padding: 16px; margin-bottom: 12px; }
+  .card-title {
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    color: #4a6070; margin-bottom: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-title span { color: #c8d8e8; font-size: 10px; letter-spacing: 0; text-transform: none; }
+
+  /* Row layout */
+  .row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 8px; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #111820;
+  }
+  .row:last-child { border-bottom: none; }
+  .row-label { color: #c8d8e8; }
+  .row-source { font-size: 9px; color: #4a6070; }
+  .row-right  { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .val  { color: #00d4ff; font-weight: 700; font-size: 13px; }
+  .lat  { font-size: 9px; color: #4a6070; min-width: 44px; text-align: right; }
+
+  /* Badges */
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
+  .ok    { background: rgba(0,230,118,0.1); color: #00e676; border: 1px solid rgba(0,230,118,0.3); }
+  .warn  { background: rgba(255,215,64,0.1); color: #ffd740; border: 1px solid rgba(255,215,64,0.3); }
+  .err   { background: rgba(255,64,96,0.1); color: #ff4060; border: 1px solid rgba(255,64,96,0.3); }
+  .info  { background: rgba(0,212,255,0.08); color: #00d4ff; border: 1px solid rgba(0,212,255,0.25); }
+
+  /* Test button */
+  .run-btn {
+    background: #00d4ff; color: #080c10; border: none; border-radius: 4px;
+    padding: 10px 24px; font-size: 13px; font-weight: 800; cursor: pointer;
+    margin-bottom: 16px; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .run-btn.running { background: #ffd740; color: #080c10; }
+  .spinner { display: none; }
+  .run-btn.running .spinner { display: inline; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Formula display */
+  .formula-block {
+    background: #111820; border: 1px solid #1a2332; border-radius: 4px;
+    padding: 12px 14px; font-size: 11px; line-height: 2;
+    font-family: monospace;
+  }
+  .formula-block .factor { display: inline-block; margin: 2px 4px; }
+  .formula-block .factor-w { color: #00d4ff; font-weight: 700; }
+  .factor-type { margin: 3px 0; }
+  .formula-block .group { color: #4a6070; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Weight bar */
+  .weight-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 10px 0 4px; }
+  .wb-seg { display: flex; align-items: center; justify-content: center; font-size: 7px; color: #080c10; font-weight: 800; }
+
+  /* Signal thresholds */
+  .threshold-row { display: flex; gap: 6px; margin: 8px 0; }
+  .thresh { flex: 1; text-align: center; padding: 8px 4px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+  .thresh.buy  { background: rgba(0,230,118,0.1); color: #00e676; border: 1px solid rgba(0,230,118,0.3); }
+  .thresh.hold { background: rgba(255,215,64,0.07); color: #ffd740; border: 1px solid rgba(255,215,64,0.3); }
+  .thresh.sell { background: rgba(255,64,96,0.1); color: #ff4060; border: 1px solid rgba(255,64,96,0.3); }
+  .thresh-sub  { font-size: 9px; font-weight: 400; margin-top: 2px; opacity: 0.8; }
+
+  /* Live values table */
+  .comp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+  }
+  .comp-tile {
+    background: #111820; border: 1px solid #1a2332; border-radius: 4px; padding: 12px;
+  }
+  .comp-tile.ok-tile    { border-color: rgba(0,230,118,0.3); }
+  .comp-tile.err-tile   { border-color: rgba(255,64,96,0.4); }
+  .comp-tile.warn-tile  { border-color: rgba(255,215,64,0.3); }
+  .ct-name  { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: #4a6070; margin-bottom: 4px; }
+  .ct-val   { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 2px; }
+  .ct-val.green  { color: #00e676; }
+  .ct-val.red    { color: #ff4060; }
+  .ct-val.yellow { color: #ffd740; }
+  .ct-val.dim    { color: #4a6070; }
+  .ct-sub   { font-size: 9px; color: #4a6070; }
+  .ct-lat   { font-size: 8px; color: #2a3a50; margin-top: 4px; }
+  .ct-src   { font-size: 8px; color: #2a3a50; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ct-err   { font-size: 9px; color: #ff4060; margin-top: 4px; word-break: break-word; }
+  .ct-norm  { font-size: 9px; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+  .norm-bar { flex: 1; height: 4px; background: #1a2332; border-radius: 2px; position: relative; }
+  .norm-fill { position: absolute; top: 0; height: 100%; border-radius: 2px; }
+  .ct-weight { font-size: 8px; color: #00d4ff; margin-top: 2px; letter-spacing: 0.5px; }
+
+  /* Test plan section */
+  .test-row { padding: 10px 0; border-bottom: 1px solid #111820; display: flex; gap: 12px; align-items: flex-start; }
+  .test-row:last-child { border-bottom: none; }
+  .test-num { font-size: 11px; color: #00d4ff; font-weight: 800; flex-shrink: 0; width: 20px; }
+  .test-body { flex: 1; }
+  .test-what { font-size: 12px; color: #fff; margin-bottom: 2px; }
+  .test-how  { font-size: 11px; color: #4a6070; }
+  .test-how code { background: #1a2332; padding: 1px 5px; border-radius: 2px; font-family: monospace; font-size: 10px; color: #c8d8e8; }
+  .test-result-expected { font-size: 10px; color: #00e676; margin-top: 3px; }
+
+  /* Indices preview */
+  .idx-preview { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .idx-tile { background: #111820; border: 1px solid #1a2332; border-radius: 4px;
+               padding: 10px 12px; flex: 1; min-width: 100px; }
+  .idx-name { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: #4a6070; }
+  .idx-val  { font-size: 18px; font-weight: 800; color: #fff; }
+  .idx-chg  { font-size: 11px; font-weight: 700; }
+  .idx-chg.pos { color: #00e676; } .idx-chg.neg { color: #ff4060; } .idx-chg.dim { color: #4a6070; }
+
+  .status-line { font-size: 11px; color: #4a6070; margin-top: 12px; }
+  .status-line strong { color: #fff; }
 </style>
 </head>
 <body>
-<a class="back" href="/">← Back to dashboard</a>
-<h1>SIG<em>NAL</em> Diagnostic</h1>
-<p class="subtitle">System health · Data sources · Configuration</p>
+<a class="back" href="/">← Dashboard</a>
+<h1>SIG<em>NAL</em> Component Test</h1>
+<p class="subtitle">Live diagnostic for all signal data sources · <span id="tested-at">not yet run</span></p>
 
+<button class="run-btn" id="runBtn" onclick="runTests()">
+  <span class="spinner">↻</span> Run All Component Tests
+</button>
+
+<!-- Signal Formula Card -->
 <div class="card">
-  <div class="card-title">Data Sources</div>
-  <div id="sources"><div class="row"><span class="row-label">Loading…</span></div></div>
+  <div class="card-title">Signal Formula</div>
+
+  <div style="margin-bottom:12px">
+    <div style="font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#4a6070;margin-bottom:6px">ETF Score = 8 Factors (total 100%)</div>
+    <div class="weight-bar">
+      <div class="wb-seg" style="width:10%;background:#00d4ff">10%</div>
+      <div class="wb-seg" style="width:10%;background:#0099bb">10%</div>
+      <div class="wb-seg" style="width:15%;background:#ffd740">15%</div>
+      <div class="wb-seg" style="width:15%;background:#ffaa00">15%</div>
+      <div class="wb-seg" style="width:15%;background:#00e676">15%</div>
+      <div class="wb-seg" style="width:15%;background:#00bb55">15%</div>
+      <div class="wb-seg" style="width:10%;background:#ff8040">10%</div>
+      <div class="wb-seg" style="width:10%;background:#cc6030">10%</div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:9px;margin-top:4px">
+      <span><span style="color:#00d4ff">■</span> News 10%</span>
+      <span><span style="color:#0099bb">■</span> Momentum 10%</span>
+      <span><span style="color:#ffd740">■</span> RSI 15%</span>
+      <span><span style="color:#ffaa00">■</span> MACD 15%</span>
+      <span><span style="color:#00e676">■</span> VIX 15%</span>
+      <span><span style="color:#00bb55">■</span> Put/Call 15%</span>
+      <span><span style="color:#ff8040">■</span> IV Skew 10%</span>
+      <span><span style="color:#cc6030">■</span> Yield Curve 10%</span>
+    </div>
+  </div>
+
+  <div class="threshold-row">
+    <div class="thresh buy">BUY<div class="thresh-sub">score &gt; +0.15</div></div>
+    <div class="thresh hold">HOLD<div class="thresh-sub">−0.15 to +0.15</div></div>
+    <div class="thresh sell">SELL<div class="thresh-sub">score &lt; −0.15</div></div>
+  </div>
+
+  <div style="margin-top:10px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#4a6070;margin-bottom:6px">Crypto Score = 4 Factors</div>
+  <div class="weight-bar">
+    <div class="wb-seg" style="width:20%;background:#00d4ff">20%</div>
+    <div class="wb-seg" style="width:20%;background:#0099bb">20%</div>
+    <div class="wb-seg" style="width:20%;background:#ffd740">20%</div>
+    <div class="wb-seg" style="width:40%;background:#ff4060">40% F&G</div>
+  </div>
 </div>
 
+<!-- Live Component Results -->
 <div class="card">
-  <div class="card-title">Macro Indicators</div>
-  <div id="macro"><div class="row"><span class="row-label">Loading…</span></div></div>
+  <div class="card-title">Live Component Results <span id="comp-status">— click Run to test</span></div>
+  <div class="comp-grid" id="compGrid">
+    <div class="comp-tile" style="grid-column:1/-1;color:#4a6070;font-size:11px;padding:20px;text-align:center">
+      Click "Run All Component Tests" to check each data source live.
+    </div>
+  </div>
 </div>
 
+<!-- Market Indices -->
+<div class="card">
+  <div class="card-title">Market Indices <span id="idx-status">—</span></div>
+  <div class="idx-preview" id="idxPreview">
+    <div style="color:#4a6070;font-size:11px">Run tests to load indices data.</div>
+  </div>
+</div>
+
+<!-- Config Status -->
 <div class="card">
   <div class="card-title">Configuration</div>
-  <div id="config"><div class="row"><span class="row-label">Loading…</span></div></div>
+  <div id="configGrid"></div>
 </div>
 
+<!-- Test Plan -->
 <div class="card">
-  <div class="card-title">Watchlist</div>
-  <div id="watchlist"><div class="row"><span class="row-label">Loading…</span></div></div>
+  <div class="card-title">Test Plan — How to Verify Each Component</div>
+
+  <div class="test-row">
+    <div class="test-num">1</div>
+    <div class="test-body">
+      <div class="test-what">VIX (Market Volatility)</div>
+      <div class="test-how">Expected range: 12–80. Below 20 = calm market. Above 30 = fear.<br>
+        Verify: <code>curl http://localhost:5000/api/macro</code> → check <code>vix.value</code><br>
+        Cross-check: Compare with <a href="https://finance.yahoo.com/quote/%5EVIX" target="_blank">Yahoo Finance ^VIX</a></div>
+      <div class="test-result-expected">✓ Pass if value is a number, available = true, latency &lt; 2000ms</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">2</div>
+    <div class="test-body">
+      <div class="test-what">Put/Call Ratio (via yfinance SPY options chain)</div>
+      <div class="test-how">Expected range: 0.5–1.5. Below 0.7 = bullish (calls dominate). Above 1.0 = bearish.<br>
+        Source: SPY nearest-expiry options chain. CBOE CSV was deprecated (returns 404).<br>
+        Verify: <code>curl http://localhost:5000/api/test-components | python3 -m json.tool</code></div>
+      <div class="test-result-expected">✓ Pass if source = "yfinance/SPY", value between 0.4–2.0</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">3</div>
+    <div class="test-body">
+      <div class="test-what">IV Skew (Options Fear Gauge)</div>
+      <div class="test-how">Ratio: 5%-OTM put implied volatility ÷ ATM call IV.<br>
+        Normal: 1.0–1.3. High skew (&gt;1.3) = options market pricing in fear.<br>
+        Today on Pi: <code>python3 -c "from etf_bot import get_iv_skew; print(get_iv_skew())"</code></div>
+      <div class="test-result-expected">✓ Pass if value is between 0.7–2.5, available = true</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">4</div>
+    <div class="test-body">
+      <div class="test-what">RSI — 14-day Relative Strength Index</div>
+      <div class="test-how">Range: 0–100. Below 30 = oversold (bullish reversal). Above 70 = overbought (bearish).<br>
+        Per-ticker; tested here with SPY as proxy.<br>
+        Verify: <code>curl http://localhost:5000/api/etf/SPY | python3 -m json.tool | grep rsi</code></div>
+      <div class="test-result-expected">✓ Pass if value between 0–100, latency &lt; 3000ms</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">5</div>
+    <div class="test-body">
+      <div class="test-what">MACD (12, 26, 9) — Trend Confirmation</div>
+      <div class="test-how">Histogram = MACD line minus signal line. Positive = bullish trend.<br>
+        Key signal: <strong>cross</strong> = 1 means bullish crossover just happened (strong buy signal).<br>
+        Tested with SPY as proxy (each ETF gets its own MACD).<br>
+        Verify: <code>curl http://localhost:5000/api/etf/SPY</code> → <code>signal.factors.macd</code></div>
+      <div class="test-result-expected">✓ Pass if histogram has a numeric value, available = true</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">6</div>
+    <div class="test-body">
+      <div class="test-what">Yield Curve (10yr − 3mo Treasury Spread)</div>
+      <div class="test-how">Positive = healthy economy. Negative (inverted) = recession signal.<br>
+        Sources: ^TNX (10yr) and ^IRX (3mo) from Yahoo Finance.<br>
+        Current spread shown in macro strip. Today's value: check the strip or run tests.</div>
+      <div class="test-result-expected">✓ Pass if ten_yr and three_mo are both populated, latency &lt; 3000ms</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">7</div>
+    <div class="test-body">
+      <div class="test-what">Crypto Fear & Greed (0–100)</div>
+      <div class="test-how">Source: alternative.me API (free, no key). 0–24 = Extreme Fear, 75–100 = Extreme Greed.<br>
+        Carries 40% weight for crypto signals.<br>
+        Verify: <code>curl https://api.alternative.me/fng/?limit=1</code></div>
+      <div class="test-result-expected">✓ Pass if value 0–100, label matches range</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">8</div>
+    <div class="test-body">
+      <div class="test-what">5-day Price Momentum</div>
+      <div class="test-how">Percentage change in price over last 5 trading days, normalised to [-1, +1].<br>
+        Strong short-term directional signal. Per-ticker; tested here with SPY as proxy.<br>
+        Verify: <code>curl http://localhost:5000/api/etf/SPY | python3 -m json.tool</code> → <code>factors.momentum</code></div>
+      <div class="test-result-expected">✓ Pass if value between -1 and +1, available = true</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">9</div>
+    <div class="test-body">
+      <div class="test-what">News Sentiment (TextBlob on RSS feeds)</div>
+      <div class="test-how">Fetches Reuters, MarketWatch, WSJ RSS + Reddit (r/investing, r/wallstreetbets).<br>
+        Polarity: -1 (very negative) to +1 (very positive). Article count shows coverage quality.<br>
+        Verify: <code>curl http://localhost:5000/api/etf/SPY</code> → check <code>articles</code> array length</div>
+      <div class="test-result-expected">✓ Pass if article_count &gt; 3. Warn if 0 (RSS blocked on Pi-hole)</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">10</div>
+    <div class="test-body">
+      <div class="test-what">Market Indices (DJIA, NASDAQ, S&amp;P 500)</div>
+      <div class="test-how">Real-time price + daily % change via yfinance (^DJI, ^IXIC, ^GSPC).<br>
+        Shown in the indices strip on the Signals tab. Informational only (not in signal formula).<br>
+        Verify: <code>curl http://localhost:5000/api/market-indices</code></div>
+      <div class="test-result-expected">✓ Pass if all 3 indices return price and change_pct, latency &lt; 3000ms</div>
+    </div>
+  </div>
+
+  <div class="test-row">
+    <div class="test-num">11</div>
+    <div class="test-body">
+      <div class="test-what">End-to-end Signal Test (SPY)</div>
+      <div class="test-how">Runs the full signal pipeline for SPY — all 8 factors computed and combined.<br>
+        <code>curl http://localhost:5000/api/etf/SPY | python3 -m json.tool</code><br>
+        Check: signal (BUY/SELL/HOLD), confidence (0–95), score (-1 to +1), all 8 factor values.</div>
+      <div class="test-result-expected">✓ Pass if signal field present, all 8 factors in factors object, no null errors</div>
+    </div>
+  </div>
+</div>
+
+<!-- Watchlist card -->
+<div class="card">
+  <div class="card-title">Tracked Assets</div>
+  <div id="watchlistGrid"></div>
+</div>
+
+<div class="status-line">
+  Flask: <strong id="flaskStatus">—</strong> &nbsp;·&nbsp;
+  Tunnel: <strong>Cloudflare (active)</strong> &nbsp;·&nbsp;
+  <a href="/api/telegram/test">Test Telegram →</a>
 </div>
 
 <script>
-function badge(ok, okText, errText) {
-  const cls = ok ? 'ok' : 'err';
-  return `<span class="badge ${cls}">${ok ? (okText||'✓ OK') : (errText||'✗ Error')}</span>`;
-}
-function row(label, right) {
-  return `<div class="row"><span class="row-label">${label}</span><span>${right}</span></div>`;
+function badge(type, text) {
+  return `<span class="badge ${type}">${text}</span>`;
 }
 
-async function check(url) {
+function normBar(n) {
+  if (n == null) return '<span style="color:#2a3a50;font-size:9px">N/A</span>';
+  const clamped = Math.max(-1, Math.min(1, n));
+  const pct     = Math.abs(clamped) * 44;
+  const color   = n > 0.05 ? '#00e676' : n < -0.05 ? '#ff4060' : '#ffd740';
+  const style   = clamped >= 0
+    ? `left:50%;width:${pct}%;background:${color}`
+    : `right:50%;width:${pct}%;background:${color}`;
+  return `<div class="ct-norm">
+    <div class="norm-bar"><div class="norm-fill" style="${style}"></div></div>
+    <span style="font-size:9px;color:${color};min-width:32px;text-align:right">${n>0?'+':''}${Number(n).toFixed(2)}</span>
+  </div>`;
+}
+
+function compTile(key, c) {
+  const ok   = c.available && !c.error;
+  const tileCls = ok ? 'ok-tile' : c.error ? 'err-tile' : 'warn-tile';
+  const valCls  = ok ? (c.normalised > 0.1 ? 'green' : c.normalised < -0.1 ? 'red' : 'yellow') : 'dim';
+
+  let dispVal = '—';
+  if (key === 'vix'        && c.value != null) dispVal = c.value.toFixed(1);
+  else if (key === 'put_call'   && c.value != null) dispVal = c.value.toFixed(3);
+  else if (key === 'iv_skew'    && c.value != null) dispVal = c.value.toFixed(3);
+  else if (key === 'yield_curve'&& c.value != null) dispVal = (c.value>0?'+':'') + c.value.toFixed(2) + '%';
+  else if (key === 'dollar_dxy' && c.value != null) dispVal = c.value.toFixed(1);
+  else if (key === 'rsi_spy'    && c.value != null) dispVal = c.value.toFixed(1);
+  else if (key === 'macd_spy'   && c.value != null) dispVal = (c.value>0?'+':'') + c.value.toFixed(3);
+  else if (key === 'momentum_spy'&& c.value != null) dispVal = (c.value>0?'+':'') + Number(c.value).toFixed(3);
+  else if (key === 'news_rss'   && c.value != null) dispVal = (c.value>0?'+':'') + c.value.toFixed(3);
+  else if (key === 'fear_greed' && c.value != null) dispVal = c.value;
+
+  const namemap = {
+    vix:'VIX',put_call:'Put/Call',iv_skew:'IV Skew',yield_curve:'Yield Curve',
+    dollar_dxy:'DXY',rsi_spy:'RSI (SPY)',macd_spy:'MACD (SPY)',
+    momentum_spy:'Momentum',news_rss:'News Sentiment',fear_greed:'Fear & Greed'
+  };
+
+  const extra = key === 'yield_curve' && c.ten_yr
+    ? `<div class="ct-sub">10yr ${c.ten_yr}% − 3mo ${c.three_mo}%</div>` : '';
+  const macdExtra = key === 'macd_spy' && c.cross != null
+    ? `<div class="ct-sub">${c.cross===1?'🟢 Bull cross':c.cross===-1?'🔴 Bear cross':'No cross'}</div>` : '';
+  const ivExtra = key === 'iv_skew' && c.put_iv
+    ? `<div class="ct-sub">put IV ${c.put_iv} / call IV ${c.call_iv}</div>` : '';
+  const newsExtra = key === 'news_rss' && c.article_count != null
+    ? `<div class="ct-sub">${c.article_count} articles</div>` : '';
+  const pcExtra = key === 'put_call' && c.source
+    ? `<div class="ct-sub">${c.source}</div>` : '';
+
+  return `<div class="comp-tile ${tileCls}">
+    <div class="ct-name">${namemap[key]||key}</div>
+    <div class="ct-val ${valCls}">${dispVal}</div>
+    ${extra}${macdExtra}${ivExtra}${newsExtra}${pcExtra}
+    ${normBar(c.normalised)}
+    <div class="ct-weight">${c.weight_etf || c.weight_crypto || ''}</div>
+    <div class="ct-lat">${c.latency_ms != null ? c.latency_ms + 'ms' : ''}</div>
+    ${c.error ? `<div class="ct-err">✗ ${c.error}</div>` : ''}
+  </div>`;
+}
+
+async function runTests() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.classList.add('running'); btn.childNodes[1].textContent = ' Running…';
+
+  document.getElementById('comp-status').textContent = '— fetching…';
+  document.getElementById('compGrid').innerHTML =
+    '<div style="color:#4a6070;font-size:11px;padding:20px;text-align:center;grid-column:1/-1">Testing all components in parallel…</div>';
+
   try {
-    const r = await fetch(url);
-    return { ok: r.ok, data: await r.json() };
-  } catch(e) {
-    return { ok: false, data: null, err: e.message };
-  }
-}
+    const [testRes, idxRes, healthRes, wlRes] = await Promise.all([
+      fetch('/api/test-components').then(r => r.json()),
+      fetch('/api/market-indices').then(r => r.json()),
+      fetch('/health').then(r => r.json()).catch(() => null),
+      fetch('/api/watchlist').then(r => r.json()).catch(() => null),
+    ]);
 
-async function run() {
-  // Health
-  const health = await check('/health');
+    // Timestamp
+    const ts = testRes.tested_at ? new Date(testRes.tested_at + 'Z').toLocaleTimeString() : '—';
+    document.getElementById('tested-at').textContent = `Last tested: ${ts}`;
 
-  // Macro
-  const macroRes = await check('/api/macro');
+    // Component tiles
+    const comps = testRes.components || {};
+    const okCount   = Object.values(comps).filter(c => c.available && !c.error).length;
+    const totalCount = Object.keys(comps).length;
+    document.getElementById('comp-status').textContent =
+      `${okCount}/${totalCount} components OK`;
+    document.getElementById('compGrid').innerHTML =
+      Object.entries(comps).map(([k, c]) => compTile(k, c)).join('');
 
-  // Watchlist
-  const wlRes = await check('/api/watchlist');
+    // Market indices
+    const idxHtml = ['SP500','NASDAQ','DJI'].map(sym => {
+      const d = idxRes[sym] || {};
+      const pct   = d.change_pct;
+      const chgCls = pct == null ? 'dim' : pct >= 0 ? 'pos' : 'neg';
+      const arrow  = pct != null ? (pct >= 0 ? '▲' : '▼') : '';
+      const names  = {SP500:'S&P 500', NASDAQ:'NASDAQ', DJI:'Dow Jones'};
+      const fmtBig = p => p >= 10000
+        ? p.toLocaleString('en-US', {maximumFractionDigits:0})
+        : p.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+      return `<div class="idx-tile">
+        <div class="idx-name">${names[sym]}</div>
+        <div class="idx-val">${d.price != null ? fmtBig(d.price) : '—'}</div>
+        <div class="idx-chg ${chgCls}">${pct != null ? arrow + Math.abs(pct).toFixed(2) + '%' : 'N/A'}</div>
+      </div>`;
+    }).join('');
+    document.getElementById('idxPreview').innerHTML = idxHtml;
+    document.getElementById('idx-status').textContent =
+      idxRes.updated_at ? `Updated ${new Date(idxRes.updated_at + 'Z').toLocaleTimeString()}` : '—';
 
-  // Tickers
-  const tkRes = await check('/api/tickers');
-
-  // Sources
-  const m = macroRes.data || {};
-  const vix = m.vix || {}, pc = m.put_call || {}, fg = m.fear_greed || {};
-  document.getElementById('sources').innerHTML = [
-    row('yfinance (prices + RSI + VIX)', badge(true, '✓ Available', '')),
-    row('CBOE Put/Call Ratio', badge(pc.available, `✓ ${pc.value}`, '✗ Blocked / unavailable')),
-    row('Crypto Fear & Greed (alternative.me)', badge(fg.available, `✓ ${fg.value} — ${fg.label}`, '✗ Unavailable')),
-    row('NewsAPI', badge(true, '✓ Configured (check .env)', '✗ No key')),
-    row('RSS Feeds (Reuters, MarketWatch)', badge(true, '✓ Active', '')),
-    row('CoinGecko (crypto prices)', badge(true, '✓ Free tier', '')),
-  ].join('');
-
-  // Macro values
-  document.getElementById('macro').innerHTML = [
-    row('VIX',            vix.available  ? `<span class="val">${vix.value}</span>` : badge(false, '', '✗ Unavailable')),
-    row('Put/Call Ratio', pc.available   ? `<span class="val">${pc.value}</span>`  : badge(false, '', '✗ Blocked')),
-    row('Fear & Greed',   fg.available   ? `<span class="val">${fg.value} — ${fg.label}</span>` : badge(false, '', '✗ Unavailable')),
-    row('Last updated',   macroRes.data?.updated_at ? `<span class="val">${new Date(macroRes.data.updated_at+'Z').toLocaleTimeString()}</span>` : '—'),
-  ].join('');
-
-  // Config
-  document.getElementById('config').innerHTML = [
-    row('Flask app', badge(health.ok, `✓ v${health.data?.version||'?'}`, '✗ Down')),
-    row('Cloudflare Tunnel', badge(true, '✓ Connected (you are here)', '')),
-    row('Telegram alerts', badge(false, '', '— Check .env for TELEGRAM_BOT_TOKEN')),
-    row('SMS (Twilio)', badge(true, '✓ Configured', '')),
-    row('Mode', `<span class="val">${health.data ? 'production' : '—'}</span>`),
-  ].join('');
-
-  // Watchlist
-  if (wlRes.ok && wlRes.data) {
-    const etfs   = wlRes.data.etfs   || [];
-    const crypto = wlRes.data.crypto || [];
-    document.getElementById('watchlist').innerHTML = [
-      row('ETFs tracked',   `<span class="val">${etfs.length}</span>`),
-      row('Crypto tracked', `<span class="val">${crypto.length}</span>`),
-      row('ETF tickers',    `<span class="val" style="font-size:11px">${etfs.map(e=>e.ticker).join(', ')}</span>`),
-      row('Crypto',         `<span class="val" style="font-size:11px">${crypto.map(c=>c.symbol).join(', ')}</span>`),
+    // Config
+    const cfg = testRes.config || {};
+    document.getElementById('configGrid').innerHTML = [
+      `<div class="row"><span class="row-label">Flask version</span><div class="row-right">${badge('ok', `v${healthRes?.version||'?'}`)}</div></div>`,
+      `<div class="row"><span class="row-label">Macro cache TTL</span><div class="row-right"><span class="val">${cfg.macro_ttl_secs}s</span></div></div>`,
+      `<div class="row"><span class="row-label">NewsAPI key</span><div class="row-right">${cfg.newsapi_key?.includes('configured') ? badge('ok','✓ Configured') : badge('warn','⚠ ' + cfg.newsapi_key)}</div></div>`,
+      `<div class="row"><span class="row-label">Telegram bot</span><div class="row-right">${cfg.telegram_bot?.includes('configured') ? badge('ok','✓ Configured') : badge('info','Optional')}</div></div>`,
+      `<div class="row"><span class="row-label">Signal formula (ETF)</span><div class="row-right" style="max-width:200px;text-align:right;font-size:10px;color:#4a6070">${testRes.signal_formula?.ETF||'—'}</div></div>`,
+      `<div class="row"><span class="row-label">Test Telegram</span><div class="row-right"><a href="/api/telegram/test">Send test →</a></div></div>`,
     ].join('');
-  }
 
-  // Telegram test link
-  document.getElementById('config').innerHTML +=
-    row('Test Telegram', `<a href="/api/telegram/test">Send test message →</a>`);
+    // Flask status
+    document.getElementById('flaskStatus').textContent = `v${healthRes?.version||'?'} OK`;
+
+    // Watchlist
+    if (wlRes) {
+      const etfs   = (wlRes.etfs   || []).map(e => e.ticker).join(', ');
+      const crypto = (wlRes.crypto || []).map(c => c.symbol).join(', ');
+      document.getElementById('watchlistGrid').innerHTML = [
+        `<div class="row"><span class="row-label">ETFs (${wlRes.etfs?.length||0})</span><div class="row-right"><span class="val" style="font-size:11px">${etfs}</span></div></div>`,
+        `<div class="row"><span class="row-label">Crypto (${wlRes.crypto?.length||0})</span><div class="row-right"><span class="val" style="font-size:11px">${crypto}</span></div></div>`,
+      ].join('');
+    }
+
+  } catch(e) {
+    document.getElementById('compGrid').innerHTML =
+      `<div style="color:#ff4060;padding:20px;grid-column:1/-1">Error: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.classList.remove('running'); btn.childNodes[1].textContent = ' Run All Component Tests';
+  }
 }
 
-run();
+// Auto-run on load
+runTests();
 </script>
 </body>
 </html>

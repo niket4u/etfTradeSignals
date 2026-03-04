@@ -258,6 +258,81 @@ def compute_rsi(ticker, period=14):
     except Exception:
         return {"value": None, "normalised": 0.0, "available": False}
 
+def compute_macd(ticker):
+    """
+    MACD (12, 26, 9). Histogram = MACD line minus signal line.
+    Positive histogram = bullish momentum; negative = bearish.
+    A fresh crossover (histogram just flipped sign) is a stronger signal.
+    """
+    try:
+        hist  = yf.Ticker(ticker).history(period="90d")
+        if len(hist) < 35:
+            return {"value": None, "normalised": 0.0, "available": False}
+        close    = hist["Close"]
+        ema12    = close.ewm(span=12, adjust=False).mean()
+        ema26    = close.ewm(span=26, adjust=False).mean()
+        macd_ln  = ema12 - ema26
+        signal   = macd_ln.ewm(span=9, adjust=False).mean()
+        histo    = macd_ln - signal
+        h        = float(histo.iloc[-1])
+        m        = float(macd_ln.iloc[-1])
+        s        = float(signal.iloc[-1])
+        prev_h   = float(histo.iloc[-2])
+        cross    = 1 if (h > 0 and prev_h <= 0) else -1 if (h < 0 and prev_h >= 0) else 0
+        price    = float(close.iloc[-1])
+        # Normalise: scale histogram relative to 1% of price; clamp to [-1, 1]
+        h_norm   = round(max(-1, min(1, h / max(price * 0.01, 0.001))), 3)
+        return {"value": round(h, 4), "macd": round(m, 4), "signal_line": round(s, 4),
+                "cross": cross, "normalised": h_norm, "available": True}
+    except Exception:
+        return {"value": None, "normalised": 0.0, "available": False}
+
+def get_iv_skew():
+    """
+    SPY options IV skew: ratio of 5%-OTM put IV vs ATM call IV.
+    High skew (> ~1.3) = options market pricing in fear = bearish.
+    Normal range: 1.0 – 1.3. Below 1.0 = unusual complacency.
+    """
+    try:
+        spy = yf.Ticker("SPY")
+        if not spy.options:
+            return {"value": None, "normalised": 0.0, "available": False}
+        # Pick first expiry with enough strikes
+        chain = None
+        for exp in spy.options[:3]:
+            c = spy.option_chain(exp)
+            if len(c.puts) >= 5 and len(c.calls) >= 5:
+                chain = c
+                break
+        if chain is None:
+            return {"value": None, "normalised": 0.0, "available": False}
+        spot   = float(spy.fast_info.last_price)
+        # ATM call: nearest strike to spot
+        calls  = chain.calls.dropna(subset=["impliedVolatility"])
+        calls  = calls[calls["impliedVolatility"] > 0.001]
+        atm_c  = calls.iloc[(calls["strike"] - spot).abs().argsort().iloc[:1]]
+        # OTM put: nearest strike to spot × 0.95
+        puts   = chain.puts.dropna(subset=["impliedVolatility"])
+        puts   = puts[puts["impliedVolatility"] > 0.001]
+        otm_p  = puts.iloc[(puts["strike"] - spot * 0.95).abs().argsort().iloc[:1]]
+        if atm_c.empty or otm_p.empty:
+            return {"value": None, "normalised": 0.0, "available": False}
+        call_iv = float(atm_c["impliedVolatility"].iloc[0])
+        put_iv  = float(otm_p["impliedVolatility"].iloc[0])
+        if call_iv <= 0:
+            return {"value": None, "normalised": 0.0, "available": False}
+        skew = round(put_iv / call_iv, 3)
+        # Normalise: skew > 1.3 → fearful (bearish); < 1.0 → complacent (slightly bullish)
+        if   skew < 0.9:  n =  0.3
+        elif skew < 1.1:  n =  0.1
+        elif skew < 1.3:  n = -0.1
+        elif skew < 1.5:  n = -0.3
+        else:             n = -0.5
+        return {"value": skew, "put_iv": round(put_iv, 3), "call_iv": round(call_iv, 3),
+                "normalised": n, "available": True}
+    except Exception:
+        return {"value": None, "normalised": 0.0, "available": False}
+
 def get_etf_momentum(ticker):
     try:
         h = yf.Ticker(ticker).history(period="10d")
@@ -282,28 +357,31 @@ def get_crypto_data(coin_id):
 
 # ── Signal builder ────────────────────────────────────────────────────────────
 def build_signal(news, momentum, rsi, vix=None, fear_greed=None, put_call=None,
-                 yield_curve=None, asset_type="ETF"):
+                 yield_curve=None, macd=None, iv_skew=None, asset_type="ETF"):
     """
-    ETF weights (6 factors, total 100%):
-      News 15% | Momentum 20% | RSI 20% | VIX 20% | Put/Call 15% | Yield Curve 10%
+    ETF weights (8 factors, total 100%):
+      News 10% | Momentum 10% | RSI 15% | MACD 15% | VIX 15% | P/C 15% | IV Skew 10% | Yield 10%
     Crypto weights (4 factors, total 100%):
       News 20% | Momentum 20% | RSI 20% | Fear & Greed 40%
-    Score range: -1 → +1. BUY > 0.15, SELL < -0.15, else HOLD.
+    Score range: -1 → +1.  BUY > +0.15 | SELL < -0.15 | HOLD otherwise.
     """
-    rn = rsi.get("normalised", 0.0)
+    rn  = rsi.get("normalised", 0.0)
+    mn  = macd["normalised"]    if macd    and macd.get("available")    else 0.0
     if asset_type == "Crypto":
         fn  = fear_greed["normalised"] if fear_greed and fear_greed["available"] else 0.0
         s   = news * 0.20 + momentum * 0.20 + rn * 0.20 + fn * 0.40
         fac = {"news_sentiment": round(news, 3), "momentum": round(momentum, 3),
                "rsi": rsi, "fear_greed": fear_greed}
     else:
-        vn  = vix["normalised"]         if vix         and vix["available"]         else 0.0
-        pn  = put_call["normalised"]    if put_call    and put_call["available"]    else 0.0
-        yn  = yield_curve["normalised"] if yield_curve and yield_curve["available"] else 0.0
-        s   = (news * 0.15 + momentum * 0.20 + rn * 0.20 +
-               vn   * 0.20 + pn       * 0.15 + yn * 0.10)
+        vn  = vix["normalised"]         if vix         and vix.get("available")         else 0.0
+        pn  = put_call["normalised"]    if put_call    and put_call.get("available")    else 0.0
+        yn  = yield_curve["normalised"] if yield_curve and yield_curve.get("available") else 0.0
+        ivn = iv_skew["normalised"]     if iv_skew     and iv_skew.get("available")     else 0.0
+        s   = (news     * 0.10 + momentum * 0.10 + rn  * 0.15 + mn  * 0.15 +
+               vn       * 0.15 + pn       * 0.15 + ivn * 0.10 + yn  * 0.10)
         fac = {"news_sentiment": round(news, 3), "momentum": round(momentum, 3),
-               "rsi": rsi, "vix": vix, "put_call": put_call, "yield_curve": yield_curve}
+               "rsi": rsi, "macd": macd, "vix": vix, "put_call": put_call,
+               "iv_skew": iv_skew, "yield_curve": yield_curve}
     s    = round(s, 3)
     sig, col = ("BUY", "green") if s > 0.15 else ("SELL", "red") if s < -0.15 else ("HOLD", "yellow")
     conf = min(int(abs(s) * 250), 95) if sig != "HOLD" else max(35, 65 - int(abs(s) * 100))
@@ -341,16 +419,18 @@ def get_macro():
     global _macro_cache, _macro_ts
     if _macro_cache and (datetime.utcnow().timestamp() - _macro_ts) < MACRO_TTL:
         return _macro_cache
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        f_vix = ex.submit(get_vix)
-        f_pc  = ex.submit(get_put_call_ratio)
-        f_yc  = ex.submit(get_yield_curve)
-        f_dxy = ex.submit(get_dollar_index)
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        f_vix  = ex.submit(get_vix)
+        f_pc   = ex.submit(get_put_call_ratio)
+        f_yc   = ex.submit(get_yield_curve)
+        f_dxy  = ex.submit(get_dollar_index)
+        f_ivsk = ex.submit(get_iv_skew)
     _macro_cache = {
         "vix":         f_vix.result(),
         "put_call":    f_pc.result(),
         "yield_curve": f_yc.result(),
         "dollar":      f_dxy.result(),
+        "iv_skew":     f_ivsk.result(),
     }
     _macro_ts = datetime.utcnow().timestamp()
     return _macro_cache
@@ -362,13 +442,16 @@ def _compute_etf_signal(ticker, macro):
         name = TRACKED_ETFS.get(ticker, ticker)
         arts = fetch_all_news(f"{ticker} ETF {name}", reddit_key="etf")
         ns, _ = analyze_sentiment(arts)
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            f_mom = ex.submit(get_etf_momentum, ticker)
-            f_rsi = ex.submit(compute_rsi, ticker)
-        mom = f_mom.result()
-        rsi = f_rsi.result()
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_mom  = ex.submit(get_etf_momentum, ticker)
+            f_rsi  = ex.submit(compute_rsi,      ticker)
+            f_macd = ex.submit(compute_macd,     ticker)
+        mom  = f_mom.result()
+        rsi  = f_rsi.result()
+        macd = f_macd.result()
         sig = build_signal(ns, mom, rsi, vix=macro["vix"], put_call=macro["put_call"],
-                           yield_curve=macro.get("yield_curve"), asset_type="ETF")
+                           yield_curve=macro.get("yield_curve"),
+                           macd=macd, iv_skew=macro.get("iv_skew"), asset_type="ETF")
         try:
             price = round(float(yf.Ticker(ticker).fast_info.last_price), 2)
         except Exception:
@@ -416,14 +499,19 @@ def health():
 @app.route("/api/dashboard")
 def api_dashboard():
     _load_csv_tickers()
-    macro = get_macro()
-    fg    = get_crypto_fear_greed()
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_macro   = ex.submit(get_macro)
+        f_fg      = ex.submit(get_crypto_fear_greed)
+        f_indices = ex.submit(get_market_indices)
+    macro   = f_macro.result()
+    fg      = f_fg.result()
+    indices = f_indices.result()
     with ThreadPoolExecutor(max_workers=8) as ex:
         etf_futs    = [ex.submit(_compute_etf_signal,    t,  macro) for t in list(TRACKED_ETFS)]
         crypto_futs = [ex.submit(_compute_crypto_signal, c,  fg)    for c in list(TRACKED_CRYPTO)]
     items = [f.result() for f in etf_futs + crypto_futs if f.result()]
     return jsonify({
-        "items": items,
+        "items":   items,
         "summary": {
             "buy":   sum(1 for i in items if i["signal"]["signal"] == "BUY"),
             "sell":  sum(1 for i in items if i["signal"]["signal"] == "SELL"),
@@ -431,6 +519,7 @@ def api_dashboard():
             "total": len(items),
         },
         "macro":      {**macro, "fear_greed": fg},
+        "indices":    indices,
         "updated_at": datetime.utcnow().isoformat(),
     })
 
@@ -442,12 +531,14 @@ def api_etf(ticker):
     macro    = get_macro()
     arts     = fetch_all_news(f"{ticker} ETF {TRACKED_ETFS[ticker]}", reddit_key="etf")
     ns, scored = analyze_sentiment(arts)
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_mom = ex.submit(get_etf_momentum, ticker)
-        f_rsi = ex.submit(compute_rsi, ticker)
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_mom  = ex.submit(get_etf_momentum, ticker)
+        f_rsi  = ex.submit(compute_rsi,      ticker)
+        f_macd = ex.submit(compute_macd,     ticker)
     sig = build_signal(ns, f_mom.result(), f_rsi.result(),
                        vix=macro["vix"], put_call=macro["put_call"],
-                       yield_curve=macro.get("yield_curve"), asset_type="ETF")
+                       yield_curve=macro.get("yield_curve"),
+                       macd=f_macd.result(), iv_skew=macro.get("iv_skew"), asset_type="ETF")
     try:
         price = round(float(yf.Ticker(ticker).fast_info.last_price), 2)
     except Exception:
@@ -478,17 +569,42 @@ def api_crypto(coin):
                     "signal": sig, "articles": scored, "fear_greed": fg,
                     "updated_at": datetime.utcnow().isoformat()})
 
+def get_market_indices():
+    """DJIA (^DJI), NASDAQ Composite (^IXIC), S&P 500 (^GSPC) — price + daily change %."""
+    indices = {"DJI": "^DJI", "NASDAQ": "^IXIC", "SP500": "^GSPC"}
+    result  = {}
+    def _fetch_index(sym, yf_sym):
+        try:
+            tk   = yf.Ticker(yf_sym)
+            info = tk.fast_info
+            price   = float(info.last_price)
+            prev    = float(info.previous_close)
+            chg_pct = round((price - prev) / prev * 100, 2) if prev else None
+            return {"price": round(price, 2), "change_pct": chg_pct,
+                    "previous_close": round(prev, 2), "available": True}
+        except Exception:
+            return {"price": None, "change_pct": None, "available": False}
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futures = {sym: ex.submit(_fetch_index, sym, ysym) for sym, ysym in indices.items()}
+    return {sym: f.result() for sym, f in futures.items()}
+
+@app.route("/api/market-indices")
+def api_market_indices():
+    return jsonify({**get_market_indices(), "updated_at": datetime.utcnow().isoformat()})
+
 @app.route("/api/macro")
 def api_macro():
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        f_vix = ex.submit(get_vix)
-        f_pc  = ex.submit(get_put_call_ratio)
-        f_fg  = ex.submit(get_crypto_fear_greed)
-        f_yc  = ex.submit(get_yield_curve)
-        f_dxy = ex.submit(get_dollar_index)
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        f_vix  = ex.submit(get_vix)
+        f_pc   = ex.submit(get_put_call_ratio)
+        f_fg   = ex.submit(get_crypto_fear_greed)
+        f_yc   = ex.submit(get_yield_curve)
+        f_dxy  = ex.submit(get_dollar_index)
+        f_ivsk = ex.submit(get_iv_skew)
     return jsonify({"vix": f_vix.result(), "put_call": f_pc.result(),
                     "fear_greed": f_fg.result(), "yield_curve": f_yc.result(),
-                    "dollar": f_dxy.result(), "updated_at": datetime.utcnow().isoformat()})
+                    "dollar": f_dxy.result(), "iv_skew": f_ivsk.result(),
+                    "updated_at": datetime.utcnow().isoformat()})
 
 @app.route("/api/test-components")
 def api_test_components():
@@ -514,29 +630,37 @@ def api_test_components():
         v = get_etf_momentum("SPY")
         return {"value": v, "available": True}
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    def _macd_test():
+        r = compute_macd("SPY")
+        return {**r, "ticker": "SPY"}
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
         f_vix  = ex.submit(run, get_vix)
         f_pc   = ex.submit(run, get_put_call_ratio)
         f_fg   = ex.submit(run, get_crypto_fear_greed)
         f_yc   = ex.submit(run, get_yield_curve)
         f_dxy  = ex.submit(run, get_dollar_index)
+        f_ivsk = ex.submit(run, get_iv_skew)
         f_rsi  = ex.submit(run, compute_rsi, "SPY")
+        f_macd = ex.submit(run, _macd_test)
         f_mom  = ex.submit(run, _mom_test)
         f_news = ex.submit(run, _news_test)
 
     return jsonify({
         "components": {
-            "vix":          {**f_vix.result(),  "source": "Yahoo Finance ^VIX",       "weight_etf": "20%"},
-            "put_call":     {**f_pc.result(),   "source": "yfinance SPY options",     "weight_etf": "15%"},
-            "yield_curve":  {**f_yc.result(),   "source": "Yahoo Finance ^TNX/^IRX",  "weight_etf": "10%"},
-            "dollar_dxy":   {**f_dxy.result(),  "source": "Yahoo Finance DX-Y.NYB",   "weight_etf": "info only"},
-            "rsi_spy":      {**f_rsi.result(),  "source": "yfinance SPY 14d",         "weight_etf": "20%"},
-            "momentum_spy": {**f_mom.result(),  "source": "yfinance SPY 5d change",   "weight_etf": "20%"},
-            "news_rss":     {**f_news.result(), "source": "Reuters/MarketWatch/Reddit","weight_etf": "15%"},
-            "fear_greed":   {**f_fg.result(),   "source": "alternative.me",           "weight_crypto": "40%"},
+            "vix":          {**f_vix.result(),  "source": "Yahoo Finance ^VIX",        "weight_etf": "15%"},
+            "put_call":     {**f_pc.result(),   "source": "yfinance SPY options chain","weight_etf": "15%"},
+            "iv_skew":      {**f_ivsk.result(), "source": "yfinance SPY options chain","weight_etf": "10%"},
+            "yield_curve":  {**f_yc.result(),   "source": "Yahoo Finance ^TNX/^IRX",   "weight_etf": "10%"},
+            "dollar_dxy":   {**f_dxy.result(),  "source": "Yahoo Finance DX-Y.NYB",    "weight_etf": "info only"},
+            "rsi_spy":      {**f_rsi.result(),  "source": "yfinance SPY 14d",          "weight_etf": "15%"},
+            "macd_spy":     {**f_macd.result(), "source": "yfinance SPY 90d (12,26,9)","weight_etf": "15%"},
+            "momentum_spy": {**f_mom.result(),  "source": "yfinance SPY 5d change",    "weight_etf": "10%"},
+            "news_rss":     {**f_news.result(), "source": "Reuters/MarketWatch/Reddit","weight_etf": "10%"},
+            "fear_greed":   {**f_fg.result(),   "source": "alternative.me",            "weight_crypto": "40%"},
         },
         "signal_formula": {
-            "ETF":    "15% news + 20% momentum + 20% RSI + 20% VIX + 15% put/call + 10% yield curve",
+            "ETF":    "10% news + 10% momentum + 15% RSI + 15% MACD + 15% VIX + 15% put/call + 10% IV skew + 10% yield curve",
             "Crypto": "20% news + 20% momentum + 20% RSI + 40% fear & greed",
             "BUY":    "score > +0.15",
             "SELL":   "score < -0.15",
@@ -648,7 +772,7 @@ def manifest():
 
 @app.route("/sw.js")
 def service_worker():
-    sw = """const CACHE='signal-v7';const OFFLINE=['/'];
+    sw = """const CACHE='signal-v8';const OFFLINE=['/'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(OFFLINE)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{if(e.request.url.includes('/api/'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request).then(r=>r||caches.match('/'))));});"""
