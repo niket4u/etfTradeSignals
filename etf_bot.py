@@ -454,6 +454,14 @@ def api_add_ticker():
 
 
 # ── Routes: PWA ───────────────────────────────────────────────────────────────
+@app.route("/favicon.ico")
+def favicon():
+    svg = ("<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'>"
+           "<rect width='32' height='32' fill='#080c10'/>"
+           "<text x='50%' y='60%' font-family='monospace' font-weight='bold' font-size='18' "
+           "fill='#00d4ff' text-anchor='middle'>S</text></svg>")
+    return Response(svg, mimetype="image/svg+xml")
+
 @app.route("/manifest.json")
 def manifest():
     return jsonify({
