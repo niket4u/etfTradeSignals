@@ -523,6 +523,9 @@ function renderCard(item) {
   const chg   = item.change24 != null
     ? `<span class="card-chg ${item.change24>=0?'pos':'neg'}">${item.change24>=0?'▲':'▼'}${Math.abs(item.change24).toFixed(2)}%</span>` : '';
   const path  = item.type === 'ETF' ? `etf/${item.ticker}` : `crypto/${item.coin_id}`;
+  const srcBadge = sig.sources_active != null
+    ? `<span style="color:${sig.sources_active < sig.sources_total ? 'var(--yellow)' : 'var(--dim)'}">${sig.sources_active}/${sig.sources_total}⚡</span>`
+    : '';
   return `<div class="card ${cls}" onclick="openSheet('${path}')">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
@@ -538,7 +541,7 @@ function renderCard(item) {
       </div>
     </div>
     <div class="conf-bar"><div class="conf-fill" style="width:${sig.confidence}%"></div></div>
-    <div class="card-footer"><span>CONF ${sig.confidence}%</span><span>${sig.score>0?'+':''}${sig.score}</span></div>
+    <div class="card-footer"><span>CONF ${sig.confidence}%</span>${srcBadge}<span>${sig.score>0?'+':''}${sig.score}</span></div>
   </div>`;
 }
 
@@ -727,11 +730,14 @@ function renderSheet(d) {
     </div>`;
   }).join('') || '<div style="color:var(--dim);font-size:11px">No articles found.</div>';
 
+  const srcLine = sig.sources_active != null
+    ? `<div style="font-size:10px;color:${sig.sources_active < sig.sources_total ? 'var(--yellow)' : 'var(--dim)'}">${sig.sources_active}/${sig.sources_total} src</div>`
+    : '';
   document.getElementById('sheetBody').innerHTML = `
     <div style="background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
       <div style="font-size:10px;color:var(--dim)">Combined Score</div>
       <div style="font-family:var(--sans);font-size:20px;font-weight:800;color:var(--accent)">${sig.score>0?'+':''}${sig.score}</div>
-      <div style="font-size:11px;color:var(--dim)">Conf: <strong style="color:#fff">${sig.confidence}%</strong></div>
+      <div style="text-align:right"><div style="font-size:11px;color:var(--dim)">Conf: <strong style="color:#fff">${sig.confidence}%</strong></div>${srcLine}</div>
     </div>
     <div class="ind-row">${indBoxes}</div>
     <div class="meters-section">
