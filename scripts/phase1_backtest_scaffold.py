@@ -51,10 +51,13 @@ def rsi_to_normalized_score(rsi: pd.Series) -> pd.Series:
     return out
 
 
-def compute_signals(prices) -> pd.DataFrame:
+def compute_signals(prices, regime_fast_ma: int, regime_slow_ma: int, regime_vol_window: int, regime_vol_max: float, cooldown_days: int) -> pd.DataFrame:
     close = normalize_close_series(prices)
     if close.empty:
-        return pd.DataFrame(columns=["close", "ret", "momentum", "rsi", "rsi_norm", "score", "signal", "position"])
+        return pd.DataFrame(columns=[
+            "close", "ret", "momentum", "rsi", "rsi_norm", "score", "raw_signal",
+            "regime_risk_on", "signal", "position", "blocked_buy", "blocked_sell"
+        ])
 
     frame = close.to_frame(name="close")
     frame["ret"] = frame["close"].pct_change().fillna(0)
@@ -64,21 +67,54 @@ def compute_signals(prices) -> pd.DataFrame:
 
     frame["score"] = (0.5 * frame["momentum"]) + (0.5 * frame["rsi_norm"])
 
-    frame["signal"] = "HOLD"
-    frame.loc[frame["score"] > 0.15, "signal"] = "BUY"
-    frame.loc[frame["score"] < -0.15, "signal"] = "SELL"
+    frame["raw_signal"] = "HOLD"
+    frame.loc[frame["score"] > 0.15, "raw_signal"] = "BUY"
+    frame.loc[frame["score"] < -0.15, "raw_signal"] = "SELL"
 
-    # Long-only scaffold: BUY enters, SELL exits, HOLD keeps prior state.
+    frame["sma_fast"] = frame["close"].rolling(regime_fast_ma).mean()
+    frame["sma_slow"] = frame["close"].rolling(regime_slow_ma).mean()
+    frame["vol_ann"] = frame["ret"].rolling(regime_vol_window).std() * np.sqrt(252)
+
+    # Risk-on regime requires positive trend and capped annualized volatility.
+    frame["regime_risk_on"] = (
+        (frame["close"] > frame["sma_slow"]) &
+        (frame["sma_fast"] > frame["sma_slow"]) &
+        (frame["vol_ann"] <= regime_vol_max)
+    ).fillna(False)
+
+    frame["signal"] = frame["raw_signal"]
+    blocked_buy = (frame["signal"] == "BUY") & (~frame["regime_risk_on"])
+    frame.loc[blocked_buy, "signal"] = "HOLD"
+
+    # Long-only with cooldown: BUY enters, SELL exits only after minimum hold period.
     position = []
+    blocked_sell = []
     current = 0
+    days_in_position = 0
+
     for signal in frame["signal"]:
-        if signal == "BUY":
+        blocked_this_sell = 0
+
+        if current == 1:
+            days_in_position += 1
+
+        if signal == "BUY" and current == 0:
             current = 1
-        elif signal == "SELL":
-            current = 0
+            days_in_position = 0
+        elif signal == "SELL" and current == 1:
+            if days_in_position >= cooldown_days:
+                current = 0
+                days_in_position = 0
+            else:
+                blocked_this_sell = 1
+
         position.append(current)
+        blocked_sell.append(blocked_this_sell)
 
     frame["position"] = pd.Series(position, index=frame.index)
+    frame["blocked_buy"] = blocked_buy.astype(int)
+    frame["blocked_sell"] = pd.Series(blocked_sell, index=frame.index)
+
     return frame
 
 
@@ -106,12 +142,30 @@ def compute_stats(equity: pd.Series, daily_ret: pd.Series, trades: int) -> dict:
     }
 
 
-def run_symbol_backtest(symbol: str, start: str, end: str, transaction_cost_bps: float) -> dict:
+def run_symbol_backtest(
+    symbol: str,
+    start: str,
+    end: str,
+    transaction_cost_bps: float,
+    regime_fast_ma: int,
+    regime_slow_ma: int,
+    regime_vol_window: int,
+    regime_vol_max: float,
+    cooldown_days: int,
+) -> dict:
     data = yf.download(symbol, start=start, end=end, progress=False, auto_adjust=True)
     if data.empty or "Close" not in data.columns:
         return {"symbol": symbol, "error": "No price data"}
 
-    signals = compute_signals(data["Close"])
+    signals = compute_signals(
+        data["Close"],
+        regime_fast_ma=regime_fast_ma,
+        regime_slow_ma=regime_slow_ma,
+        regime_vol_window=regime_vol_window,
+        regime_vol_max=regime_vol_max,
+        cooldown_days=cooldown_days,
+    )
+
     if signals.empty:
         return {"symbol": symbol, "error": "No usable close data"}
 
@@ -125,6 +179,9 @@ def run_symbol_backtest(symbol: str, start: str, end: str, transaction_cost_bps:
         "symbol": symbol,
         "stats": compute_stats(strat_equity, strat_ret, int(position_change.sum())),
         "rows": int(len(signals)),
+        "regime_days": int(signals["regime_risk_on"].sum()),
+        "blocked_buy_signals": int(signals["blocked_buy"].sum()),
+        "blocked_sell_signals": int(signals["blocked_sell"].sum()),
     }
     return out
 
@@ -142,13 +199,18 @@ def extract_symbols_from_tickers_csv(path: Path) -> list:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Phase 1 backtest scaffold")
+    parser = argparse.ArgumentParser(description="Phase 2 scaffold backtest (regime + cooldown)")
     parser.add_argument("--symbols", default="", help="Comma-separated symbols, e.g. SPY,QQQ,TQQQ")
     parser.add_argument("--symbols-file", default="tickers.csv", help="CSV file with Ticker column")
     parser.add_argument("--start", default="2022-01-01", help="Backtest start date YYYY-MM-DD")
     parser.add_argument("--end", default=datetime.utcnow().date().isoformat(), help="Backtest end date YYYY-MM-DD")
     parser.add_argument("--benchmark", default="SPY", help="Benchmark symbol")
     parser.add_argument("--transaction-cost-bps", type=float, default=2.0, help="Cost per position change in basis points")
+    parser.add_argument("--cooldown-days", type=int, default=5, help="Minimum hold days before a SELL can exit")
+    parser.add_argument("--regime-fast-ma", type=int, default=50, help="Fast moving average window for regime filter")
+    parser.add_argument("--regime-slow-ma", type=int, default=200, help="Slow moving average window for regime filter")
+    parser.add_argument("--regime-vol-window", type=int, default=20, help="Volatility lookback window for regime filter")
+    parser.add_argument("--regime-vol-max", type=float, default=0.40, help="Max annualized volatility allowed for risk-on")
     parser.add_argument("--output-dir", default="reports/phase1", help="Directory for generated reports")
     return parser.parse_args()
 
@@ -176,7 +238,10 @@ def write_outputs(payload: dict, output_dir: Path) -> tuple:
 
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["symbol", "total_return", "cagr", "max_drawdown", "sharpe_like", "trade_count", "rows", "error"])
+        writer.writerow([
+            "symbol", "total_return", "cagr", "max_drawdown", "sharpe_like", "trade_count",
+            "rows", "regime_days", "blocked_buy_signals", "blocked_sell_signals", "error"
+        ])
         for row in payload["symbols"]:
             stats = row.get("stats", {})
             writer.writerow([
@@ -187,6 +252,9 @@ def write_outputs(payload: dict, output_dir: Path) -> tuple:
                 stats.get("sharpe_like"),
                 stats.get("trade_count"),
                 row.get("rows"),
+                row.get("regime_days"),
+                row.get("blocked_buy_signals"),
+                row.get("blocked_sell_signals"),
                 row.get("error", ""),
             ])
 
@@ -199,7 +267,17 @@ def main() -> int:
 
     symbol_results = []
     for symbol in symbols:
-        symbol_results.append(run_symbol_backtest(symbol, args.start, args.end, args.transaction_cost_bps))
+        symbol_results.append(run_symbol_backtest(
+            symbol,
+            args.start,
+            args.end,
+            args.transaction_cost_bps,
+            args.regime_fast_ma,
+            args.regime_slow_ma,
+            args.regime_vol_window,
+            args.regime_vol_max,
+            args.cooldown_days,
+        ))
 
     valid = [r for r in symbol_results if "stats" in r]
 
@@ -210,28 +288,48 @@ def main() -> int:
             "avg_cagr": round(float(np.mean([r["stats"]["cagr"] for r in valid])), 6),
             "avg_max_drawdown": round(float(np.mean([r["stats"]["max_drawdown"] for r in valid])), 6),
             "avg_sharpe_like": round(float(np.mean([r["stats"]["sharpe_like"] for r in valid])), 6),
+            "avg_blocked_buy_signals": round(float(np.mean([r.get("blocked_buy_signals", 0) for r in valid])), 2),
+            "avg_blocked_sell_signals": round(float(np.mean([r.get("blocked_sell_signals", 0) for r in valid])), 2),
             "symbol_count": len(valid),
         }
 
-    benchmark_result = run_symbol_backtest(args.benchmark.upper(), args.start, args.end, 0.0)
+    benchmark_result = run_symbol_backtest(
+        args.benchmark.upper(),
+        args.start,
+        args.end,
+        0.0,
+        args.regime_fast_ma,
+        args.regime_slow_ma,
+        args.regime_vol_window,
+        args.regime_vol_max,
+        args.cooldown_days,
+    )
 
     payload = {
         "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "start": args.start,
         "end": args.end,
         "transaction_cost_bps": args.transaction_cost_bps,
+        "model_config": {
+            "cooldown_days": args.cooldown_days,
+            "regime_fast_ma": args.regime_fast_ma,
+            "regime_slow_ma": args.regime_slow_ma,
+            "regime_vol_window": args.regime_vol_window,
+            "regime_vol_max": args.regime_vol_max,
+        },
         "symbols": symbol_results,
         "portfolio_summary": portfolio_summary,
         "benchmark": benchmark_result,
         "notes": [
-            "Scaffold model uses momentum + RSI proxy, not full production signal stack.",
-            "Use this baseline to compare changes before switching to model v2.",
+            "Phase 2 step 1: regime filter blocks BUY during risk-off periods.",
+            "Phase 2 step 2: cooldown prevents early SELL exits before minimum hold days.",
+            "Scaffold model still uses momentum + RSI proxy, not full production signal stack.",
         ],
     }
 
     json_path, csv_path = write_outputs(payload, Path(args.output_dir))
 
-    print("Phase 1 backtest scaffold generated")
+    print("Phase 2 backtest scaffold generated (regime + cooldown)")
     print(f"- JSON: {json_path}")
     print(f"- CSV:  {csv_path}")
     print(f"- Symbols tested: {len(symbols)}")
