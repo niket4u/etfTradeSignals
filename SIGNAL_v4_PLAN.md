@@ -234,7 +234,7 @@ Ongoing: Phase 5 — Tests added alongside each phase
 
 ## 7. Open Questions
 
-1. **NewsAPI key** — registered at newsapi.org? Free tier is 100 req/day = fine for polling every 30min across ~12 tickers.
-2. **Pi-hole rule** — can you add `finance.yahoo.com` and `newsapi.org` to the Pi-hole allowlist? This is the fastest fix if Pi-hole is the blocker.
-3. **Telegram bot** — created via @BotFather? Need `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to enable change alerts.
-4. **Alpha Vantage key** — do you have one? Free tier (25 req/day) adds another news fallback.
+1. **NewsAPI key** — ✅ Configured (`NEWS_API_KEY` in `.env`)
+2. **Alpha Vantage key** — ✅ Configured (`ALPHA_VANTAGE_KEY` in `.env`)
+3. **Pi-hole rule** — can you add `newsapi.org` and `www.alphavantage.co` to the Pi-hole allowlist? This ensures these don't get blocked like the RSS feeds were.
+4. **Telegram bot** — created via @BotFather? Need `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to enable change alerts.

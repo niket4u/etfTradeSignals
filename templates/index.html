@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SIGNAL">
+<meta name="theme-color" content="#00d4ff">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<title>SIGNAL</title>
+<style>
+  :root {
+    --bg:      #080c10;
+    --surf:    #0d1219;
+    --surf2:   #111820;
+    --border:  #1a2332;
+    --muted:   #2a3a50;
+    --text:    #c8d8e8;
+    --dim:     #4a6070;
+    --accent:  #00d4ff;
+    --green:   #00e676;
+    --red:     #ff4060;
+    --yellow:  #ffd740;
+    --mono: Arial, Helvetica, sans-serif;
+    --sans: Arial, Helvetica, sans-serif;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top:    env(safe-area-inset-top, 0px);
+    --nav-h:   64px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overscroll-behavior: none; }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--mono); font-size: 13px;
+    overflow: hidden; /* sheets handle scrolling */
+  }
+
+  /* ── App shell ── */
+  #app {
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
+    padding-top: var(--safe-top);
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px 12px;
+    background: rgba(8,12,16,0.96);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    position: relative; z-index: 20;
+  }
+  .topbar-logo { font-family: var(--sans); font-size: 19px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+  .topbar-logo em { color: var(--accent); font-style: normal; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .topbar-clock { font-size: 10px; color: var(--dim); letter-spacing: 1px; }
+  .topbar-refresh {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--surf2); border: 1px solid var(--border);
+    color: var(--accent); font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s; -webkit-tap-highlight-color: transparent;
+  }
+  .topbar-refresh:active { background: var(--muted); }
+  .topbar-refresh.spinning { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Macro strip ── */
+  .macro-strip {
+    flex-shrink: 0;
+    display: flex; gap: 1px; overflow-x: auto; scrollbar-width: none;
+    background: var(--border); border-bottom: 1px solid var(--border);
+  }
+  .macro-strip::-webkit-scrollbar { display: none; }
+  .macro-chip {
+    flex: 0 0 auto; padding: 9px 14px;
+    background: var(--surf); display: flex; flex-direction: column; gap: 2px;
+    min-width: 90px;
+  }
+  .mc-label { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+  .mc-value { font-family: var(--sans); font-size: 16px; font-weight: 800; }
+  .mc-value.green  { color: var(--green); }
+  .mc-value.red    { color: var(--red); }
+  .mc-value.yellow { color: var(--yellow); }
+  .mc-value.white  { color: #fff; }
+  .mc-sub { font-size: 8px; color: var(--dim); }
+
+  /* ── Summary row ── */
+  .summary-row {
+    flex-shrink: 0;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    background: var(--border);
+  }
+  .sum-cell {
+    background: var(--surf2); padding: 10px 0;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .sum-num { font-family: var(--sans); font-size: 22px; font-weight: 800; }
+  .sum-lbl { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+
+  /* ── Scroll area ── */
+  .scroll-area {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    padding: 12px 12px calc(var(--nav-h) + var(--safe-bottom) + 12px);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Section label ── */
+  .sec-label {
+    font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--dim); margin: 4px 4px 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sec-label::after { content:''; flex:1; height:1px; background: var(--border); }
+  .pulse-dot { width:5px; height:5px; border-radius:50%; background: var(--accent); animation: pdot 2s infinite; }
+  @keyframes pdot { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* ── Cards (mobile-first, single column on small, 2-col on wide) ── */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px; margin-bottom: 16px;
+  }
+
+  .card {
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: 4px; padding: 14px 12px;
+    cursor: pointer; position: relative; overflow: hidden;
+    transition: transform 0.15s; active-scale: 0.97;
+    animation: fadeUp 0.35s ease both;
+  }
+  .card:active { transform: scale(0.97); }
+  .card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+  .card.buy::before  { background: var(--green); }
+  .card.sell::before { background: var(--red); }
+  .card.hold::before { background: var(--yellow); }
+
+  .card-ticker { font-family: var(--sans); font-size: 17px; font-weight: 800; color: #fff; }
+  .card-name   { font-size: 9px; color: var(--dim); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-mid    { display: flex; justify-content: space-between; align-items: flex-end; margin: 10px 0 8px; }
+  .card-price  { font-size: 14px; font-weight: 700; color: #fff; }
+  .card-chg    { font-size: 10px; }
+  .card-chg.pos { color: var(--green); }
+  .card-chg.neg { color: var(--red); }
+  .card-badge {
+    font-family: var(--sans); font-size: 10px; font-weight: 700;
+    padding: 3px 8px; letter-spacing: 2px; border-radius: 2px;
+  }
+  .card-badge.BUY  { background: rgba(0,230,118,0.1);  color: var(--green);  border: 1px solid rgba(0,230,118,0.4); }
+  .card-badge.SELL { background: rgba(255,64,96,0.1);   color: var(--red);    border: 1px solid rgba(255,64,96,0.4); }
+  .card-badge.HOLD { background: rgba(255,215,64,0.07); color: var(--yellow); border: 1px solid rgba(255,215,64,0.4); }
+  .conf-bar { height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; margin-top: 8px; }
+  .conf-fill { height: 100%; border-radius: 1px; }
+  .buy  .conf-fill { background: var(--green); }
+  .sell .conf-fill { background: var(--red); }
+  .hold .conf-fill { background: var(--yellow); }
+  .card-footer { display: flex; justify-content: space-between; font-size: 9px; color: var(--dim); margin-top: 6px; }
+
+  /* Skeleton */
+  .skel { background: var(--surf); border: 1px solid var(--border); border-radius: 4px; height: 110px; animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { 0%,100%{opacity:0.45} 50%{opacity:0.9} }
+  @keyframes fadeUp  { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ── Bottom nav ── */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: calc(var(--nav-h) + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    background: rgba(8,12,16,0.96);
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    display: flex; z-index: 30;
+  }
+  .nav-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 4px; cursor: pointer;
+    color: var(--dim); font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+    transition: color 0.15s; border: none; background: none; padding: 0;
+  }
+  .nav-btn .nav-icon { font-size: 20px; }
+  .nav-btn.active { color: var(--accent); }
+
+  /* ── Slide-up detail sheet ── */
+  .sheet-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 40; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s;
+    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  }
+  .sheet-overlay.open { opacity: 1; pointer-events: all; }
+
+  .sheet {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    max-height: 92dvh;
+    background: var(--surf); border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    z-index: 50; transform: translateY(100%);
+    transition: transform 0.32s cubic-bezier(0.32,0.72,0,1);
+    display: flex; flex-direction: column;
+    padding-bottom: var(--safe-bottom);
+  }
+  .sheet.open { transform: translateY(0); }
+
+  .sheet-handle {
+    flex-shrink: 0; display: flex; justify-content: center; padding: 12px 0 8px;
+  }
+  .sheet-handle-bar { width: 36px; height: 4px; background: var(--muted); border-radius: 2px; }
+
+  .sheet-header {
+    flex-shrink: 0; padding: 0 18px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .sheet-ticker { font-family: var(--sans); font-size: 24px; font-weight: 800; color: #fff; }
+  .sheet-name   { font-size: 10px; color: var(--dim); margin-top: 2px; }
+  .sheet-price  { font-size: 16px; font-weight: 700; color: #fff; margin-top: 4px; }
+  .sheet-close  {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--surf2); border: 1px solid var(--border);
+    color: var(--dim); font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .sheet-body {
+    flex: 1; overflow-y: auto; padding: 16px 18px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Indicator pills in sheet */
+  .ind-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .ind-box { background: var(--surf2); border: 1px solid var(--border); padding: 10px 10px 8px; border-radius: 4px; }
+  .ind-lbl { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+  .ind-val { font-family: var(--sans); font-size: 16px; font-weight: 800; }
+  .ind-sub { font-size: 8px; margin-top: 1px; }
+  .ind-val.green, .ind-sub.green { color: var(--green); }
+  .ind-val.red,   .ind-sub.red   { color: var(--red); }
+  .ind-val.yellow,.ind-sub.yellow{ color: var(--yellow); }
+  .ind-val.dim,   .ind-sub.dim   { color: var(--dim); }
+
+  /* Meter bars in sheet */
+  .meters-section { margin-bottom: 16px; }
+  .meters-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+  .meter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .meter-lbl { font-size: 9px; color: var(--dim); width: 72px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  .meter-track { flex: 1; height: 5px; background: var(--border); border-radius: 3px; position: relative; overflow: visible; }
+  .meter-center { position: absolute; top: -4px; left: 50%; width: 1px; height: 13px; background: var(--muted); }
+  .meter-fill   { position: absolute; top: 0; height: 100%; border-radius: 3px; transition: all 0.5s ease; }
+  .meter-val    { font-size: 10px; width: 44px; text-align: right; font-weight: 700; }
+
+  /* News in sheet */
+  .news-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+  .news-item  { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .news-item:last-child { border-bottom: none; }
+  .news-tag   { display: inline-block; font-size: 8px; padding: 1px 5px; letter-spacing: 1px; font-weight: 700; margin-bottom: 4px; border-radius: 2px; }
+  .news-tag.Positive { background: rgba(0,230,118,0.1); color: var(--green); }
+  .news-tag.Negative { background: rgba(255,64,96,0.1);  color: var(--red); }
+  .news-tag.Neutral  { background: rgba(255,215,64,0.05); color: var(--yellow); border: 1px solid rgba(255,215,64,0.2); }
+  .news-hl { font-size: 12px; line-height: 1.5; color: var(--text); }
+  .news-hl a { color: inherit; text-decoration: none; }
+  .news-hl a:active { color: var(--accent); }
+  .news-meta { font-size: 9px; color: var(--dim); margin-top: 3px; display: flex; justify-content: space-between; }
+  .news-src { padding: 1px 5px; border: 1px solid var(--muted); border-radius: 2px; }
+  .news-src.reddit { color: #ff6314; border-color: rgba(255,99,20,0.3); }
+
+  /* ── Macro page ── */
+  #macroPage { display: none; }
+  #macroPage.visible { display: block; }
+  .macro-page-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 12px calc(var(--nav-h) + var(--safe-bottom) + 12px); }
+  .macro-card { background: var(--surf); border: 1px solid var(--border); border-radius: 4px; padding: 16px 14px; }
+  .mc-card-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+  .mc-card-value { font-family: var(--sans); font-size: 32px; font-weight: 800; color: #fff; }
+  .mc-card-sub   { font-size: 10px; margin-top: 4px; }
+  .mc-card-note  { font-size: 9px; color: var(--dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+
+  /* ── Add Asset page ── */
+  #addPage { display: none; }
+  .add-form-card {
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: 4px; padding: 16px; margin-bottom: 16px;
+  }
+  .add-form-label {
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 12px;
+  }
+  .add-input-row { display: flex; gap: 10px; }
+  .add-input {
+    flex: 1; background: var(--surf2); border: 1px solid var(--border);
+    color: var(--text); font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px; padding: 10px 12px; border-radius: 4px; outline: none;
+  }
+  .add-input:focus { border-color: var(--accent); }
+  .add-input::placeholder { color: var(--dim); }
+  .add-btn {
+    background: var(--accent); color: var(--bg);
+    font-family: Arial, Helvetica, sans-serif; font-size: 13px; font-weight: 700;
+    padding: 10px 18px; border: none; border-radius: 4px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .add-msg { font-size: 11px; margin-top: 10px; padding: 8px 10px; border-radius: 3px; }
+  .add-msg.hidden { display: none; }
+  .add-msg.success { background: rgba(0,230,118,0.08); color: var(--green); border: 1px solid rgba(0,230,118,0.25); }
+  .add-msg.error   { background: rgba(255,64,96,0.08);  color: var(--red);   border: 1px solid rgba(255,64,96,0.25); }
+  .tracked-list { display: flex; flex-direction: column; gap: 1px; }
+  .tracked-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; background: var(--surf2); border-radius: 3px;
+  }
+  .tracked-sym  { font-weight: 700; font-size: 13px; color: var(--accent); }
+  .tracked-name { font-size: 10px; color: var(--dim); margin-top: 1px; }
+  .tracked-strat {
+    font-size: 9px; padding: 2px 7px; letter-spacing: 0.5px;
+    background: var(--muted); color: var(--text); border-radius: 2px;
+  }
+  .tracked-empty { color: var(--dim); font-size: 11px; padding: 16px 0; text-align: center; font-style: italic; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 2px; }
+  ::-webkit-scrollbar-thumb { background: var(--muted); }
+
+  /* ── Desktop enhancement ── */
+  @media (min-width: 600px) {
+    .scroll-area { padding-left: 20px; padding-right: 20px; }
+    .card-grid   { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+    .macro-page-grid { grid-template-columns: repeat(3, 1fr); padding: 20px; }
+  }
+  @media (min-width: 900px) {
+    .card-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    .sheet { max-width: 480px; left: auto; right: 0; border-radius: 16px 0 0 16px; max-height: 100dvh; }
+    .sheet-overlay { background: rgba(0,0,0,0.4); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-logo">SIG<em>NAL</em></div>
+    <div class="topbar-right">
+      <div class="topbar-clock" id="clock">--:--</div>
+      <button class="topbar-refresh" id="refreshBtn" onclick="refresh()" title="Refresh">↻</button>
+    </div>
+  </div>
+
+  <!-- Macro strip -->
+  <div class="macro-strip" id="macroStrip">
+    <div class="macro-chip"><div class="mc-label">VIX</div><div class="mc-value white" id="ms-vix">—</div><div class="mc-sub" id="ms-vix-sub">Loading</div></div>
+    <div class="macro-chip"><div class="mc-label">Put/Call</div><div class="mc-value white" id="ms-pc">—</div><div class="mc-sub" id="ms-pc-sub">Loading</div></div>
+    <div class="macro-chip"><div class="mc-label">Fear &amp; Greed</div><div class="mc-value white" id="ms-fg">—</div><div class="mc-sub" id="ms-fg-sub">Loading</div></div>
+    <div class="macro-chip"><div class="mc-label">Updated</div><div class="mc-value white" style="font-size:12px" id="ms-time">—</div><div class="mc-sub" id="ms-src">—</div></div>
+  </div>
+
+  <!-- Summary row -->
+  <div class="summary-row">
+    <div class="sum-cell"><div class="sum-num" style="color:var(--green)"  id="sumBuy">—</div><div class="sum-lbl">Buy</div></div>
+    <div class="sum-cell"><div class="sum-num" style="color:var(--red)"    id="sumSell">—</div><div class="sum-lbl">Sell</div></div>
+    <div class="sum-cell"><div class="sum-num" style="color:var(--yellow)" id="sumHold">—</div><div class="sum-lbl">Hold</div></div>
+    <div class="sum-cell"><div class="sum-num" style="color:var(--dim)"    id="sumTotal">—</div><div class="sum-lbl">Total</div></div>
+  </div>
+
+  <!-- Signals page -->
+  <div class="scroll-area" id="mainPage">
+    <div class="sec-label"><span class="pulse-dot"></span>US ETFs</div>
+    <div class="card-grid" id="etfGrid"><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+    <div class="sec-label"><span class="pulse-dot"></span>Crypto</div>
+    <div class="card-grid" id="cryptoGrid"><div class="skel"></div><div class="skel"></div></div>
+  </div>
+
+  <!-- Macro page -->
+  <div class="scroll-area" id="macroPage" style="display:none">
+    <div class="macro-page-grid" id="macroPageGrid">
+      <div class="macro-card"><div class="mc-card-label">Loading</div></div>
+    </div>
+  </div>
+
+  <!-- Add Asset page -->
+  <div class="scroll-area" id="addPage" style="display:none">
+    <div class="add-form-card">
+      <div class="add-form-label">Add Asset to Watchlist</div>
+      <div class="add-input-row">
+        <input type="text" class="add-input" id="addTickerInput"
+               placeholder="Ticker (e.g. SPY, QQQ, TQQQ)"
+               autocomplete="off" autocapitalize="characters"
+               onkeydown="if(event.key==='Enter')submitAddTicker()">
+        <button class="add-btn" id="addTickerBtn" onclick="submitAddTicker()">+ Add</button>
+      </div>
+      <div id="addMsg" class="add-msg hidden"></div>
+    </div>
+    <div class="sec-label"><span class="pulse-dot"></span>Tracked Assets</div>
+    <div id="trackedList" class="tracked-list">
+      <div class="tracked-empty">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Bottom nav -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" id="nav-signals" onclick="showPage('signals')">
+      <span class="nav-icon">📊</span><span>Signals</span>
+    </button>
+    <button class="nav-btn" id="nav-macro" onclick="showPage('macro')">
+      <span class="nav-icon">🌡</span><span>Macro</span>
+    </button>
+    <button class="nav-btn" id="nav-add" onclick="showPage('add')">
+      <span class="nav-icon">＋</span><span>Add</span>
+    </button>
+    <button class="nav-btn" id="nav-diag" onclick="window.location.href='/diagnostic'">
+      <span class="nav-icon">🔬</span><span>Inspect</span>
+    </button>
+  </nav>
+</div>
+
+<!-- Sheet overlay -->
+<div class="sheet-overlay" id="sheetOverlay" onclick="closeSheet()"></div>
+
+<!-- Detail sheet -->
+<div class="sheet" id="sheet">
+  <div class="sheet-handle"><div class="sheet-handle-bar"></div></div>
+  <div class="sheet-header" id="sheetHeader"></div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<script>
+// ── PWA registration ──────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// ── Clock ─────────────────────────────────────────────────────────────────
+function updateClock() {
+  const n = new Date(), p = x => String(x).padStart(2,'0');
+  document.getElementById('clock').textContent = `${p(n.getUTCHours())}:${p(n.getUTCMinutes())} UTC`;
+}
+setInterval(updateClock, 10000); updateClock();
+
+// ── Page switching ─────────────────────────────────────────────────────────
+let currentPage = 'signals';
+function showPage(page) {
+  currentPage = page;
+  document.getElementById('mainPage').style.display  = page === 'signals' ? '' : 'none';
+  document.getElementById('macroPage').style.display = page === 'macro'   ? '' : 'none';
+  document.getElementById('addPage').style.display   = page === 'add'     ? '' : 'none';
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const navMap = { signals: 'nav-signals', macro: 'nav-macro', add: 'nav-add' };
+  document.getElementById(navMap[page] || 'nav-signals')?.classList.add('active');
+  if (page === 'macro' && !macroRendered) renderMacroPage();
+  if (page === 'add') loadTrackedAssets();
+}
+
+// ── Data ──────────────────────────────────────────────────────────────────
+let dashData = null, macroRendered = false;
+
+async function refresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  try { await loadDashboard(); } finally { btn.classList.remove('spinning'); }
+}
+
+async function loadDashboard() {
+  try {
+    const r = await fetch('/api/dashboard');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    dashData = await r.json();
+    renderDashboard(dashData);
+    macroRendered = false;
+    if (currentPage === 'macro') renderMacroPage();
+  } catch(e) {
+    console.error('Dashboard error:', e);
+  }
+}
+
+function renderDashboard(d) {
+  // Summary
+  document.getElementById('sumBuy').textContent   = d.summary.buy;
+  document.getElementById('sumSell').textContent  = d.summary.sell;
+  document.getElementById('sumHold').textContent  = d.summary.hold;
+  document.getElementById('sumTotal').textContent = d.summary.total;
+
+  // Macro strip
+  const m = d.macro || {};
+  const vix = m.vix || {}, pc = m.put_call || {}, fg = m.fear_greed || {};
+  setMacroStrip(vix, pc, fg, d.updated_at, d.summary.total);
+
+  // Cards
+  const etfs   = d.items.filter(i => i.type === 'ETF');
+  const crypto = d.items.filter(i => i.type === 'Crypto');
+  document.getElementById('etfGrid').innerHTML    = etfs.map(renderCard).join('');
+  document.getElementById('cryptoGrid').innerHTML = crypto.map(renderCard).join('');
+}
+
+function setMacroStrip(vix, pc, fg, ts, total) {
+  const vixCls = vix.value < 15 ? 'green' : vix.value < 20 ? 'yellow' : 'red';
+  const pcCls  = pc.value < 0.7 ? 'green' : pc.value > 1.0 ? 'red' : 'yellow';
+  const fgCls  = fg.value < 30 ? 'red' : fg.value > 70 ? 'green' : 'yellow';
+
+  document.getElementById('ms-vix').className = `mc-value ${vixCls}`;
+  document.getElementById('ms-vix').textContent = vix.value ?? '—';
+  document.getElementById('ms-vix-sub').textContent = vix.value < 15 ? 'Calm' : vix.value < 30 ? 'Elevated' : 'Fear';
+
+  document.getElementById('ms-pc').className = `mc-value ${pcCls}`;
+  document.getElementById('ms-pc').textContent = pc.value ?? '—';
+  document.getElementById('ms-pc-sub').textContent = pc.value < 0.7 ? 'Bullish' : pc.value > 1 ? 'Bearish' : 'Neutral';
+
+  document.getElementById('ms-fg').className = `mc-value ${fgCls}`;
+  document.getElementById('ms-fg').textContent = fg.value ?? '—';
+  document.getElementById('ms-fg-sub').textContent = fg.label ?? 'N/A';
+
+  document.getElementById('ms-time').textContent = ts ? new Date(ts+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
+  document.getElementById('ms-src').textContent = `${total} assets`;
+}
+
+function renderCard(item) {
+  const sig = item.signal, cls = sig.signal.toLowerCase();
+  const price = fmtP(item.price, item.type);
+  const chg   = item.change24 != null
+    ? `<span class="card-chg ${item.change24>=0?'pos':'neg'}">${item.change24>=0?'▲':'▼'}${Math.abs(item.change24).toFixed(2)}%</span>` : '';
+  const path  = item.type === 'ETF' ? `etf/${item.ticker}` : `crypto/${item.coin_id}`;
+  return `<div class="card ${cls}" onclick="openSheet('${path}')">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div class="card-ticker">${item.ticker}</div>
+        <div class="card-name">${item.name}</div>
+      </div>
+      <div class="card-badge ${sig.signal}">${sig.signal}</div>
+    </div>
+    <div class="card-mid">
+      <div>
+        <div class="card-price">${price}</div>
+        ${chg}
+      </div>
+    </div>
+    <div class="conf-bar"><div class="conf-fill" style="width:${sig.confidence}%"></div></div>
+    <div class="card-footer"><span>CONF ${sig.confidence}%</span><span>${sig.score>0?'+':''}${sig.score}</span></div>
+  </div>`;
+}
+
+// ── Macro page ─────────────────────────────────────────────────────────────
+function renderMacroPage() {
+  if (!dashData) return;
+  const m = dashData.macro || {};
+  const vix = m.vix||{}, pc = m.put_call||{}, fg = m.fear_greed||{};
+  const cards = [
+    { label:'VIX', value: vix.value??'—', sub: vix.value<15?'Low Volatility':vix.value<20?'Normal':vix.value<30?'Elevated Fear':'Extreme Fear',
+      cls: vix.value<15?'green':vix.value<20?'yellow':'red', note:'Yahoo Finance ^VIX · yfinance · Free' },
+    { label:'Put/Call Ratio', value: pc.value??'—', sub: pc.value<0.7?'Bullish (calls dominant)':pc.value>1?'Bearish (puts dominant)':'Neutral',
+      cls: pc.value<0.7?'green':pc.value>1?'red':'yellow', note:'CBOE public CSV · Free' },
+    { label:'Crypto Fear & Greed', value: fg.value??'—', sub: fg.label??'N/A',
+      cls: fg.value<30?'red':fg.value>70?'green':'yellow', note:'alternative.me API · Free · No key' },
+    { label:'ETF Count', value: dashData.items?.filter(i=>i.type==='ETF').length??0, sub: 'Tracked', cls:'white', note:'yfinance prices' },
+    { label:'Crypto Count', value: dashData.items?.filter(i=>i.type==='Crypto').length??0, sub: 'Tracked', cls:'white', note:'CoinGecko API · Free' },
+    { label:'Last Update', value: dashData.updated_at ? new Date(dashData.updated_at+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—',
+      sub: 'Auto-refresh 5min', cls:'white', note:'All sources updated together' },
+  ];
+  document.getElementById('macroPageGrid').innerHTML = cards.map(c => `
+    <div class="macro-card">
+      <div class="mc-card-label">${c.label}</div>
+      <div class="mc-card-value" style="color:var(--${c.cls}||#fff)">${c.value}</div>
+      <div class="mc-card-sub ${c.cls}">${c.sub}</div>
+      <div class="mc-card-note">${c.note}</div>
+    </div>`).join('');
+  macroRendered = true;
+}
+
+// ── Add Asset page ─────────────────────────────────────────────────────────
+async function loadTrackedAssets() {
+  try {
+    const r = await fetch('/api/tickers');
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    renderTrackedList(data.tickers);
+  } catch {
+    document.getElementById('trackedList').innerHTML = '<div class="tracked-empty">Failed to load assets.</div>';
+  }
+}
+
+function renderTrackedList(tickers) {
+  const el = document.getElementById('trackedList');
+  if (!tickers || tickers.length === 0) {
+    el.innerHTML = '<div class="tracked-empty">No assets tracked yet. Add one above.</div>';
+    return;
+  }
+  el.innerHTML = tickers.map(t => `
+    <div class="tracked-row">
+      <div>
+        <div class="tracked-sym">${esc(t.ticker)}</div>
+        <div class="tracked-name">${esc(t.name)}</div>
+      </div>
+      <span class="tracked-strat">${esc(t.strategy)}</span>
+    </div>`).join('');
+}
+
+async function submitAddTicker() {
+  const input = document.getElementById('addTickerInput');
+  const btn   = document.getElementById('addTickerBtn');
+  const msg   = document.getElementById('addMsg');
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) return;
+
+  btn.disabled = true; btn.textContent = 'Adding…';
+  msg.className = 'add-msg hidden';
+
+  try {
+    const r = await fetch('/api/add-ticker', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ticker})
+    });
+    const data = await r.json();
+    if (r.ok) {
+      msg.textContent = `✓ Added ${data.ticker} — ${data.name} (${data.strategy})`;
+      msg.className = 'add-msg success';
+      input.value = '';
+      loadTrackedAssets();
+    } else {
+      msg.textContent = data.error || 'Failed to add ticker.';
+      msg.className = 'add-msg error';
+    }
+  } catch {
+    msg.textContent = 'Network error. Please try again.';
+    msg.className = 'add-msg error';
+  } finally {
+    btn.disabled = false; btn.textContent = '+ Add';
+    setTimeout(() => { msg.className = 'add-msg hidden'; }, 4000);
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Detail Sheet ──────────────────────────────────────────────────────────
+let sheetOpen = false;
+
+async function openSheet(path) {
+  // Show sheet immediately with loading state
+  document.getElementById('sheetHeader').innerHTML = `
+    <div><div class="sheet-ticker" style="color:var(--dim)">Loading…</div></div>
+    <button class="sheet-close" onclick="closeSheet()">✕</button>`;
+  document.getElementById('sheetBody').innerHTML = `<div style="color:var(--dim);font-size:11px;padding:20px 0">Fetching data…</div>`;
+  document.getElementById('sheetOverlay').classList.add('open');
+  document.getElementById('sheet').classList.add('open');
+  sheetOpen = true;
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const r = await fetch(`/api/${path}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    renderSheet(await r.json());
+  } catch(e) {
+    document.getElementById('sheetBody').innerHTML = `<div style="color:var(--red);font-size:11px">Error: ${e.message}</div>`;
+  }
+}
+
+function closeSheet() {
+  document.getElementById('sheetOverlay').classList.remove('open');
+  document.getElementById('sheet').classList.remove('open');
+  sheetOpen = false;
+  document.body.style.overflow = '';
+}
+
+// Close sheet on back gesture / hardware back button
+window.addEventListener('popstate', () => { if (sheetOpen) closeSheet(); });
+
+function renderSheet(d) {
+  const sig = d.signal, f = sig.factors || {};
+  const isCrypto = d.type === 'Crypto';
+  const price = fmtP(d.price, d.type);
+  const chgHtml = d.change24 != null
+    ? `<span style="font-size:11px;margin-left:6px;color:${d.change24>=0?'var(--green)':'var(--red)'}">${d.change24>=0?'▲':'▼'}${Math.abs(d.change24).toFixed(2)}%</span>` : '';
+
+  // Header
+  document.getElementById('sheetHeader').innerHTML = `
+    <div>
+      <div class="sheet-ticker">${d.ticker}</div>
+      <div class="sheet-name">${d.name}</div>
+      <div class="sheet-price">${price}${chgHtml}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <button class="sheet-close" onclick="closeSheet()">✕</button>
+      <div class="card-badge ${sig.signal}" style="font-size:12px;padding:4px 10px">${sig.signal}</div>
+    </div>`;
+
+  // Indicators
+  const rsi = f.rsi||{}, vix = f.vix||{}, pc = f.put_call||{}, fg = f.fear_greed||d.fear_greed||{};
+  const indBoxes = isCrypto ? `
+    <div class="ind-box"><div class="ind-lbl">RSI</div><div class="ind-val ${rsiCls(rsi.value)}">${rsi.value??'—'}</div><div class="ind-sub ${rsiCls(rsi.value)}">${rsiLbl(rsi.value)}</div></div>
+    <div class="ind-box"><div class="ind-lbl">Momentum</div><div class="ind-val ${f.momentum>0.1?'green':f.momentum<-0.1?'red':'yellow'}">${f.momentum!=null?(f.momentum>0?'+':'')+f.momentum:'—'}</div><div class="ind-sub ${f.momentum>0.1?'green':f.momentum<-0.1?'red':'yellow'}">${f.momentum>0.1?'Up':f.momentum<-0.1?'Down':'Side'}</div></div>
+    <div class="ind-box"><div class="ind-lbl">Fear&amp;Greed</div><div class="ind-val ${fg.value<30?'red':fg.value>70?'green':'yellow'}">${fg.value??'—'}</div><div class="ind-sub ${fg.value<30?'red':fg.value>70?'green':'yellow'}">${fg.label??'N/A'}</div></div>
+  ` : `
+    <div class="ind-box"><div class="ind-lbl">RSI</div><div class="ind-val ${rsiCls(rsi.value)}">${rsi.value??'—'}</div><div class="ind-sub ${rsiCls(rsi.value)}">${rsiLbl(rsi.value)}</div></div>
+    <div class="ind-box"><div class="ind-lbl">VIX</div><div class="ind-val ${vix.value<15?'green':vix.value<20?'yellow':'red'}">${vix.value??'—'}</div><div class="ind-sub dim">Volatility</div></div>
+    <div class="ind-box"><div class="ind-lbl">Put/Call</div><div class="ind-val ${pc.value<0.7?'green':pc.value>1?'red':'yellow'}">${pc.value??'—'}</div><div class="ind-sub dim">CBOE</div></div>
+  `;
+
+  // Factor meters
+  const factors = isCrypto
+    ? [['News',f.news_sentiment],['Momentum',f.momentum],['RSI',rsi.normalised],['F&G',fg.normalised]]
+    : [['News',f.news_sentiment],['Momentum',f.momentum],['RSI',rsi.normalised],['VIX',vix.normalised],['P/C',pc.normalised]];
+  const meters = factors.map(([lbl,v]) => {
+    if (v==null) return '';
+    const c = v>0.05?'var(--green)':v<-0.05?'var(--red)':'var(--yellow)';
+    const pct = Math.abs(Math.max(-1,Math.min(1,v)))*44;
+    const style = v>=0 ? `left:50%;width:${pct}%` : `right:50%;width:${pct}%`;
+    return `<div class="meter-row">
+      <span class="meter-lbl">${lbl}</span>
+      <div class="meter-track"><div class="meter-center"></div><div class="meter-fill" style="${style};background:${c}"></div></div>
+      <span class="meter-val" style="color:${c}">${v>0?'+':''}${Number(v).toFixed(2)}</span>
+    </div>`;
+  }).join('');
+
+  // News
+  const newsHtml = (d.articles||[]).slice(0,10).map(a => {
+    const src = a.source?.name || a.source || 'Unknown';
+    const isReddit = src.toLowerCase().includes('reddit');
+    return `<div class="news-item">
+      <span class="news-tag ${a.label}">${a.label.toUpperCase()}</span>
+      <div class="news-hl"><a href="${a.url||'#'}" target="_blank">${a.title}</a></div>
+      <div class="news-meta"><span class="news-src ${isReddit?'reddit':''}">${src}</span><span>${a.sentiment>0?'+':''}${Number(a.sentiment).toFixed(3)}</span></div>
+    </div>`;
+  }).join('') || '<div style="color:var(--dim);font-size:11px">No articles found.</div>';
+
+  document.getElementById('sheetBody').innerHTML = `
+    <div style="background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:10px;color:var(--dim)">Combined Score</div>
+      <div style="font-family:var(--sans);font-size:20px;font-weight:800;color:var(--accent)">${sig.score>0?'+':''}${sig.score}</div>
+      <div style="font-size:11px;color:var(--dim)">Conf: <strong style="color:#fff">${sig.confidence}%</strong></div>
+    </div>
+    <div class="ind-row">${indBoxes}</div>
+    <div class="meters-section">
+      <div class="meters-title">◈ Signal Factors</div>
+      ${meters}
+      <div class="meter-row">
+        <span class="meter-lbl">Combined</span>
+        <div class="meter-track"><div class="meter-center"></div>
+          <div class="meter-fill" style="${sig.score>=0?'left:50%':'right:50%'};width:${Math.abs(sig.score)*44}%;background:var(--accent)"></div>
+        </div>
+        <span class="meter-val" style="color:var(--accent)">${sig.score>0?'+':''}${sig.score}</span>
+      </div>
+    </div>
+    <div class="news-title">📰 News & Social (${d.articles?.length||0})</div>
+    ${newsHtml}`;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function fmtP(p, type) {
+  if (!p) return '—';
+  if (type==='Crypto' && p>1000) return '$'+p.toLocaleString('en-US',{maximumFractionDigits:0});
+  return '$'+p.toFixed(2);
+}
+function rsiCls(v) { return !v?'dim':v<30?'green':v>70?'red':'yellow'; }
+function rsiLbl(v) { return !v?'N/A':v<30?'Oversold':v<45?'Low':v<55?'Neutral':v<70?'High':'Overbought'; }
+
+// ── Swipe to close sheet ──────────────────────────────────────────────────
+let swipeStartY = 0;
+document.getElementById('sheet').addEventListener('touchstart', e => {
+  swipeStartY = e.touches[0].clientY;
+}, {passive:true});
+document.getElementById('sheet').addEventListener('touchend', e => {
+  const dy = e.changedTouches[0].clientY - swipeStartY;
+  if (dy > 80) closeSheet();
+}, {passive:true});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+loadDashboard();
+setInterval(loadDashboard, 5 * 60 * 1000);
+</script>
+</body>
+</html>

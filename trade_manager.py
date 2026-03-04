@@ -9,7 +9,16 @@ def add_ticker(symbol):
     ticker_info = yf.Ticker(symbol)
     name = ticker_info.info.get("shortName", "Unknown")
     strategy = classify_strategy(name)
+    # Ensure file ends with a newline before appending
+    try:
+        with open(TICKERS_FILE, "rb") as f:
+            f.seek(-1, 2)
+            needs_newline = f.read(1) != b"\n"
+    except (OSError, IOError):
+        needs_newline = False
     with open(TICKERS_FILE, "a", newline="") as f:
+        if needs_newline:
+            f.write("\n")
         writer = csv.writer(f)
         writer.writerow([symbol, name, strategy])
     return name, strategy
