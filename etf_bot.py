@@ -184,15 +184,63 @@ def get_vix():
         return {"value": None, "normalised": 0.0, "available": False}
 
 def get_put_call_ratio():
+    """CBOE combinedpc.csv was deprecated — use yfinance SPY options chain (live, free)."""
+    # Method 1: yfinance SPY options (primary — most reliable)
+    try:
+        spy = yf.Ticker("SPY")
+        if spy.options:
+            chain     = spy.option_chain(spy.options[0])
+            puts_vol  = chain.puts["volume"].fillna(0).sum()
+            calls_vol = chain.calls["volume"].fillna(0).sum()
+            if calls_vol > 0:
+                pcr = round(float(puts_vol / calls_vol), 3)
+                n   = round(max(-1, min(1, (1.0 - pcr) * 1.2)), 3)
+                return {"value": pcr, "normalised": n, "available": True, "source": "yfinance/SPY"}
+    except Exception:
+        pass
+    # Method 2: CBOE total equity P/C (fallback — may or may not still work)
     try:
         r = req_lib.get(
-            "https://www.cboe.com/publish/scheduledtask/mktdata/datahouse/combinedpc.csv",
+            "https://www.cboe.com/publish/scheduledtask/mktdata/datahouse/totalpc.csv",
             timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        lines = [l for l in r.text.strip().split("\n") if l.strip()]
-        pcr = float(lines[-1].split(",")[6])
-        return {"value": round(pcr, 3),
-                "normalised": round(max(-1, min(1, (1.0 - pcr) * 1.2)), 3),
-                "available": True}
+        if r.status_code == 200 and "," in r.text[:200]:
+            lines = [l for l in r.text.strip().split("\n") if l.strip()]
+            pcr   = float(lines[-1].split(",")[-1])
+            n     = round(max(-1, min(1, (1.0 - pcr) * 1.2)), 3)
+            return {"value": round(pcr, 3), "normalised": n, "available": True, "source": "CBOE CSV"}
+    except Exception:
+        pass
+    return {"value": None, "normalised": 0.0, "available": False, "source": "unavailable"}
+
+def get_yield_curve():
+    """10yr Treasury yield minus 13-week T-bill. Negative = inverted curve = bearish signal."""
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f10 = ex.submit(lambda: float(yf.Ticker("^TNX").fast_info.last_price))
+            f3m = ex.submit(lambda: float(yf.Ticker("^IRX").fast_info.last_price))
+        yr10   = f10.result()
+        yr3m   = f3m.result()
+        spread = round(yr10 - yr3m, 3)
+        # Normalise: steep positive = healthy = bullish; inversion = recession risk = bearish
+        if   spread >  2.0: n =  0.4
+        elif spread >  1.0: n =  0.2
+        elif spread >  0.2: n =  0.1
+        elif spread > -0.3: n = -0.1
+        else:               n = -0.4
+        return {"value": spread, "ten_yr": round(yr10, 2), "three_mo": round(yr3m, 2),
+                "normalised": n, "available": True}
+    except Exception:
+        return {"value": None, "normalised": 0.0, "available": False}
+
+def get_dollar_index():
+    """DXY (US Dollar Index). Strong USD is generally bearish for risk assets & commodities."""
+    try:
+        dxy = float(yf.Ticker("DX-Y.NYB").fast_info.last_price)
+        if   dxy < 95:  n =  0.3   # weak dollar → bullish for risk assets
+        elif dxy < 99:  n =  0.1
+        elif dxy < 103: n = -0.1
+        else:           n = -0.3   # strong dollar → bearish
+        return {"value": round(dxy, 2), "normalised": n, "available": True}
     except Exception:
         return {"value": None, "normalised": 0.0, "available": False}
 
@@ -233,7 +281,15 @@ def get_crypto_data(coin_id):
 
 
 # ── Signal builder ────────────────────────────────────────────────────────────
-def build_signal(news, momentum, rsi, vix=None, fear_greed=None, put_call=None, asset_type="ETF"):
+def build_signal(news, momentum, rsi, vix=None, fear_greed=None, put_call=None,
+                 yield_curve=None, asset_type="ETF"):
+    """
+    ETF weights (6 factors, total 100%):
+      News 15% | Momentum 20% | RSI 20% | VIX 20% | Put/Call 15% | Yield Curve 10%
+    Crypto weights (4 factors, total 100%):
+      News 20% | Momentum 20% | RSI 20% | Fear & Greed 40%
+    Score range: -1 → +1. BUY > 0.15, SELL < -0.15, else HOLD.
+    """
     rn = rsi.get("normalised", 0.0)
     if asset_type == "Crypto":
         fn  = fear_greed["normalised"] if fear_greed and fear_greed["available"] else 0.0
@@ -241,11 +297,13 @@ def build_signal(news, momentum, rsi, vix=None, fear_greed=None, put_call=None, 
         fac = {"news_sentiment": round(news, 3), "momentum": round(momentum, 3),
                "rsi": rsi, "fear_greed": fear_greed}
     else:
-        vn  = vix["normalised"]      if vix      and vix["available"]      else 0.0
-        pn  = put_call["normalised"] if put_call and put_call["available"] else 0.0
-        s   = news * 0.20 + momentum * 0.20 + rn * 0.20 + vn * 0.20 + pn * 0.20
+        vn  = vix["normalised"]         if vix         and vix["available"]         else 0.0
+        pn  = put_call["normalised"]    if put_call    and put_call["available"]    else 0.0
+        yn  = yield_curve["normalised"] if yield_curve and yield_curve["available"] else 0.0
+        s   = (news * 0.15 + momentum * 0.20 + rn * 0.20 +
+               vn   * 0.20 + pn       * 0.15 + yn * 0.10)
         fac = {"news_sentiment": round(news, 3), "momentum": round(momentum, 3),
-               "rsi": rsi, "vix": vix, "put_call": put_call}
+               "rsi": rsi, "vix": vix, "put_call": put_call, "yield_curve": yield_curve}
     s    = round(s, 3)
     sig, col = ("BUY", "green") if s > 0.15 else ("SELL", "red") if s < -0.15 else ("HOLD", "yellow")
     conf = min(int(abs(s) * 250), 95) if sig != "HOLD" else max(35, 65 - int(abs(s) * 100))
@@ -283,11 +341,18 @@ def get_macro():
     global _macro_cache, _macro_ts
     if _macro_cache and (datetime.utcnow().timestamp() - _macro_ts) < MACRO_TTL:
         return _macro_cache
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         f_vix = ex.submit(get_vix)
         f_pc  = ex.submit(get_put_call_ratio)
-    _macro_cache = {"vix": f_vix.result(), "put_call": f_pc.result()}
-    _macro_ts    = datetime.utcnow().timestamp()
+        f_yc  = ex.submit(get_yield_curve)
+        f_dxy = ex.submit(get_dollar_index)
+    _macro_cache = {
+        "vix":         f_vix.result(),
+        "put_call":    f_pc.result(),
+        "yield_curve": f_yc.result(),
+        "dollar":      f_dxy.result(),
+    }
+    _macro_ts = datetime.utcnow().timestamp()
     return _macro_cache
 
 
@@ -302,7 +367,8 @@ def _compute_etf_signal(ticker, macro):
             f_rsi = ex.submit(compute_rsi, ticker)
         mom = f_mom.result()
         rsi = f_rsi.result()
-        sig = build_signal(ns, mom, rsi, vix=macro["vix"], put_call=macro["put_call"], asset_type="ETF")
+        sig = build_signal(ns, mom, rsi, vix=macro["vix"], put_call=macro["put_call"],
+                           yield_curve=macro.get("yield_curve"), asset_type="ETF")
         try:
             price = round(float(yf.Ticker(ticker).fast_info.last_price), 2)
         except Exception:
@@ -380,7 +446,8 @@ def api_etf(ticker):
         f_mom = ex.submit(get_etf_momentum, ticker)
         f_rsi = ex.submit(compute_rsi, ticker)
     sig = build_signal(ns, f_mom.result(), f_rsi.result(),
-                       vix=macro["vix"], put_call=macro["put_call"], asset_type="ETF")
+                       vix=macro["vix"], put_call=macro["put_call"],
+                       yield_curve=macro.get("yield_curve"), asset_type="ETF")
     try:
         price = round(float(yf.Ticker(ticker).fast_info.last_price), 2)
     except Exception:
@@ -413,12 +480,75 @@ def api_crypto(coin):
 
 @app.route("/api/macro")
 def api_macro():
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         f_vix = ex.submit(get_vix)
         f_pc  = ex.submit(get_put_call_ratio)
         f_fg  = ex.submit(get_crypto_fear_greed)
+        f_yc  = ex.submit(get_yield_curve)
+        f_dxy = ex.submit(get_dollar_index)
     return jsonify({"vix": f_vix.result(), "put_call": f_pc.result(),
-                    "fear_greed": f_fg.result(), "updated_at": datetime.utcnow().isoformat()})
+                    "fear_greed": f_fg.result(), "yield_curve": f_yc.result(),
+                    "dollar": f_dxy.result(), "updated_at": datetime.utcnow().isoformat()})
+
+@app.route("/api/test-components")
+def api_test_components():
+    """Diagnostic: test every signal data source individually with latency + error details."""
+    import time as _time
+    def run(fn, *args, **kwargs):
+        t0 = _time.time()
+        try:
+            r = fn(*args, **kwargs)
+            return {**r, "latency_ms": round((_time.time() - t0) * 1000), "error": None}
+        except Exception as e:
+            return {"available": False, "value": None,
+                    "latency_ms": round((_time.time() - t0) * 1000), "error": str(e)}
+
+    # News test wrapper
+    def _news_test():
+        arts = fetch_rss_articles("stock market ETF")
+        ns, _ = analyze_sentiment(arts)
+        return {"value": round(ns, 3), "article_count": len(arts), "available": len(arts) > 0}
+
+    # Momentum test wrapper
+    def _mom_test():
+        v = get_etf_momentum("SPY")
+        return {"value": v, "available": True}
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        f_vix  = ex.submit(run, get_vix)
+        f_pc   = ex.submit(run, get_put_call_ratio)
+        f_fg   = ex.submit(run, get_crypto_fear_greed)
+        f_yc   = ex.submit(run, get_yield_curve)
+        f_dxy  = ex.submit(run, get_dollar_index)
+        f_rsi  = ex.submit(run, compute_rsi, "SPY")
+        f_mom  = ex.submit(run, _mom_test)
+        f_news = ex.submit(run, _news_test)
+
+    return jsonify({
+        "components": {
+            "vix":          {**f_vix.result(),  "source": "Yahoo Finance ^VIX",       "weight_etf": "20%"},
+            "put_call":     {**f_pc.result(),   "source": "yfinance SPY options",     "weight_etf": "15%"},
+            "yield_curve":  {**f_yc.result(),   "source": "Yahoo Finance ^TNX/^IRX",  "weight_etf": "10%"},
+            "dollar_dxy":   {**f_dxy.result(),  "source": "Yahoo Finance DX-Y.NYB",   "weight_etf": "info only"},
+            "rsi_spy":      {**f_rsi.result(),  "source": "yfinance SPY 14d",         "weight_etf": "20%"},
+            "momentum_spy": {**f_mom.result(),  "source": "yfinance SPY 5d change",   "weight_etf": "20%"},
+            "news_rss":     {**f_news.result(), "source": "Reuters/MarketWatch/Reddit","weight_etf": "15%"},
+            "fear_greed":   {**f_fg.result(),   "source": "alternative.me",           "weight_crypto": "40%"},
+        },
+        "signal_formula": {
+            "ETF":    "15% news + 20% momentum + 20% RSI + 20% VIX + 15% put/call + 10% yield curve",
+            "Crypto": "20% news + 20% momentum + 20% RSI + 40% fear & greed",
+            "BUY":    "score > +0.15",
+            "SELL":   "score < -0.15",
+            "HOLD":   "-0.15 ≤ score ≤ +0.15",
+        },
+        "config": {
+            "newsapi_key":    "configured" if NEWS_API_KEY else "missing — add NEWS_API_KEY to .env",
+            "telegram_bot":   "configured" if TELEGRAM_BOT_TOKEN else "missing — optional",
+            "macro_ttl_secs": MACRO_TTL,
+        },
+        "tested_at": datetime.utcnow().isoformat(),
+    })
 
 @app.route("/api/watchlist")
 def api_watchlist():
@@ -518,7 +648,7 @@ def manifest():
 
 @app.route("/sw.js")
 def service_worker():
-    sw = """const CACHE='signal-v6';const OFFLINE=['/'];
+    sw = """const CACHE='signal-v7';const OFFLINE=['/'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(OFFLINE)));self.skipWaiting();});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));self.clients.claim();});
 self.addEventListener('fetch',e=>{if(e.request.url.includes('/api/'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request).then(r=>r||caches.match('/'))));});"""

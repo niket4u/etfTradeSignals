@@ -237,7 +237,7 @@
   }
 
   /* Indicator pills in sheet */
-  .ind-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .ind-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-bottom: 16px; }
   .ind-box { background: var(--surf2); border: 1px solid var(--border); padding: 10px 10px 8px; border-radius: 4px; }
   .ind-lbl { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
   .ind-val { font-family: var(--sans); font-size: 16px; font-weight: 800; }
@@ -469,6 +469,8 @@
     <div class="macro-chip"><div class="mc-label">VIX</div><div class="mc-value white" id="ms-vix">—</div><div class="mc-sub" id="ms-vix-sub">Loading</div></div>
     <div class="macro-chip"><div class="mc-label">Put/Call</div><div class="mc-value white" id="ms-pc">—</div><div class="mc-sub" id="ms-pc-sub">Loading</div></div>
     <div class="macro-chip"><div class="mc-label">Fear &amp; Greed</div><div class="mc-value white" id="ms-fg">—</div><div class="mc-sub" id="ms-fg-sub">Loading</div></div>
+    <div class="macro-chip"><div class="mc-label">Yield Curve</div><div class="mc-value white" id="ms-yc">—</div><div class="mc-sub" id="ms-yc-sub">10yr−3mo</div></div>
+    <div class="macro-chip"><div class="mc-label">DXY</div><div class="mc-value white" id="ms-dxy">—</div><div class="mc-sub" id="ms-dxy-sub">USD Index</div></div>
     <div class="macro-chip"><div class="mc-label">Updated</div><div class="mc-value white" style="font-size:12px" id="ms-time">—</div><div class="mc-sub" id="ms-src">—</div></div>
   </div>
 
@@ -656,7 +658,8 @@ function renderDashboard(d) {
   // Macro strip
   const m = d.macro || {};
   const vix = m.vix || {}, pc = m.put_call || {}, fg = m.fear_greed || {};
-  setMacroStrip(vix, pc, fg, d.updated_at, d.summary.total);
+  const yc  = m.yield_curve || {}, dxy = m.dollar || {};
+  setMacroStrip(vix, pc, fg, yc, dxy, d.updated_at, d.summary.total);
 
   // Cards
   const etfs   = d.items.filter(i => i.type === 'ETF');
@@ -665,22 +668,32 @@ function renderDashboard(d) {
   document.getElementById('cryptoGrid').innerHTML = crypto.map(renderCard).join('');
 }
 
-function setMacroStrip(vix, pc, fg, ts, total) {
-  const vixCls = vix.value < 15 ? 'green' : vix.value < 20 ? 'yellow' : 'red';
-  const pcCls  = pc.value < 0.7 ? 'green' : pc.value > 1.0 ? 'red' : 'yellow';
-  const fgCls  = fg.value < 30 ? 'red' : fg.value > 70 ? 'green' : 'yellow';
+function setMacroStrip(vix, pc, fg, yc, dxy, ts, total) {
+  const vixCls = !vix.value ? 'dim' : vix.value < 15 ? 'green' : vix.value < 20 ? 'yellow' : 'red';
+  const pcCls  = !pc.value  ? 'dim' : pc.value  < 0.7 ? 'green' : pc.value  > 1.0 ? 'red' : 'yellow';
+  const fgCls  = !fg.value  ? 'dim' : fg.value  < 30  ? 'red'   : fg.value  > 70  ? 'green' : 'yellow';
+  const ycCls  = !yc.value  ? 'dim' : yc.value  > 0.5 ? 'green' : yc.value  < -0.3 ? 'red' : 'yellow';
+  const dxyCls = !dxy.value ? 'dim' : dxy.value < 99  ? 'green' : dxy.value > 103  ? 'red' : 'yellow';
 
-  document.getElementById('ms-vix').className = `mc-value ${vixCls}`;
+  document.getElementById('ms-vix').className  = `mc-value ${vixCls}`;
   document.getElementById('ms-vix').textContent = vix.value ?? '—';
-  document.getElementById('ms-vix-sub').textContent = vix.value < 15 ? 'Calm' : vix.value < 30 ? 'Elevated' : 'Fear';
+  document.getElementById('ms-vix-sub').textContent = !vix.value ? 'N/A' : vix.value < 15 ? 'Calm' : vix.value < 30 ? 'Elevated' : 'Fear';
 
-  document.getElementById('ms-pc').className = `mc-value ${pcCls}`;
+  document.getElementById('ms-pc').className  = `mc-value ${pcCls}`;
   document.getElementById('ms-pc').textContent = pc.value ?? '—';
-  document.getElementById('ms-pc-sub').textContent = pc.value < 0.7 ? 'Bullish' : pc.value > 1 ? 'Bearish' : 'Neutral';
+  document.getElementById('ms-pc-sub').textContent = !pc.value ? 'N/A' : pc.value < 0.7 ? 'Bullish' : pc.value > 1 ? 'Bearish' : 'Neutral';
 
-  document.getElementById('ms-fg').className = `mc-value ${fgCls}`;
+  document.getElementById('ms-fg').className  = `mc-value ${fgCls}`;
   document.getElementById('ms-fg').textContent = fg.value ?? '—';
   document.getElementById('ms-fg-sub').textContent = fg.label ?? 'N/A';
+
+  document.getElementById('ms-yc').className  = `mc-value ${ycCls}`;
+  document.getElementById('ms-yc').textContent = yc.value != null ? (yc.value > 0 ? '+' : '') + yc.value.toFixed(2) + '%' : '—';
+  document.getElementById('ms-yc-sub').textContent = !yc.value ? 'N/A' : yc.value > 0.5 ? 'Normal' : yc.value < -0.3 ? 'Inverted' : 'Flat';
+
+  document.getElementById('ms-dxy').className  = `mc-value ${dxyCls}`;
+  document.getElementById('ms-dxy').textContent = dxy.value ?? '—';
+  document.getElementById('ms-dxy-sub').textContent = !dxy.value ? 'N/A' : dxy.value < 99 ? 'Weak USD' : dxy.value > 103 ? 'Strong USD' : 'Neutral';
 
   document.getElementById('ms-time').textContent = ts ? new Date(ts+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
   document.getElementById('ms-src').textContent = `${total} assets`;
@@ -720,17 +733,35 @@ function renderMacroPage() {
   if (!dashData) return;
   const m = dashData.macro || {};
   const vix = m.vix||{}, pc = m.put_call||{}, fg = m.fear_greed||{};
+  const yc = m.yield_curve||{}, dxy = m.dollar||{};
+  const ycVal  = yc.value != null ? (yc.value>0?'+':'') + yc.value.toFixed(2)+'%' : '—';
+  const ycSub  = yc.value == null ? 'N/A' : yc.value > 0.5 ? 'Normal — healthy gap' : yc.value < -0.3 ? 'Inverted — recession risk' : 'Flat — watch closely';
+  const ycNote = yc.ten_yr && yc.three_mo ? `10yr ${yc.ten_yr}% − 3mo ${yc.three_mo}%` : '';
+  const dxySub = dxy.value == null ? 'N/A' : dxy.value < 99 ? 'Weak USD — bullish for risk' : dxy.value > 103 ? 'Strong USD — bearish for risk' : 'Neutral';
   const cards = [
-    { label:'VIX', value: vix.value??'—', sub: vix.value<15?'Low Volatility':vix.value<20?'Normal':vix.value<30?'Elevated Fear':'Extreme Fear',
-      cls: vix.value<15?'green':vix.value<20?'yellow':'red', note:'Yahoo Finance ^VIX · yfinance · Free' },
-    { label:'Put/Call Ratio', value: pc.value??'—', sub: pc.value<0.7?'Bullish (calls dominant)':pc.value>1?'Bearish (puts dominant)':'Neutral',
-      cls: pc.value<0.7?'green':pc.value>1?'red':'yellow', note:'CBOE public CSV · Free' },
+    { label:'VIX', value: vix.value??'—',
+      sub: !vix.value?'N/A':vix.value<15?'Low Volatility':vix.value<20?'Normal':vix.value<30?'Elevated Fear':'Extreme Fear',
+      cls: !vix.value?'dim':vix.value<15?'green':vix.value<20?'yellow':'red',
+      note:'Yahoo Finance ^VIX · yfinance · Free · Weight: 20%' },
+    { label:'Put/Call Ratio', value: pc.value??'—',
+      sub: !pc.value?'N/A':pc.value<0.7?'Bullish (calls dominant)':pc.value>1?'Bearish (puts dominant)':'Neutral',
+      cls: !pc.value?'dim':pc.value<0.7?'green':pc.value>1?'red':'yellow',
+      note:`yfinance SPY options chain · Free · Weight: 15% · Source: ${pc.source||'N/A'}` },
+    { label:'Yield Curve (10yr−3mo)', value: ycVal,
+      sub: ycSub,
+      cls: !yc.value?'dim':yc.value>0.5?'green':yc.value<-0.3?'red':'yellow',
+      note:`Yahoo Finance ^TNX & ^IRX · Free · Weight: 10% · ${ycNote}` },
+    { label:'US Dollar (DXY)', value: dxy.value??'—',
+      sub: dxySub,
+      cls: !dxy.value?'dim':dxy.value<99?'green':dxy.value>103?'red':'yellow',
+      note:'Yahoo Finance DX-Y.NYB · Free · Informational (affects commodities & intl ETFs)' },
     { label:'Crypto Fear & Greed', value: fg.value??'—', sub: fg.label??'N/A',
-      cls: fg.value<30?'red':fg.value>70?'green':'yellow', note:'alternative.me API · Free · No key' },
-    { label:'ETF Count', value: dashData.items?.filter(i=>i.type==='ETF').length??0, sub: 'Tracked', cls:'white', note:'yfinance prices' },
+      cls: !fg.value?'dim':fg.value<30?'red':fg.value>70?'green':'yellow',
+      note:'alternative.me API · Free · No key needed · Weight (crypto only): 40%' },
+    { label:'ETF Count', value: dashData.items?.filter(i=>i.type==='ETF').length??0, sub: 'Tracked', cls:'white', note:'yfinance prices & signals' },
     { label:'Crypto Count', value: dashData.items?.filter(i=>i.type==='Crypto').length??0, sub: 'Tracked', cls:'white', note:'CoinGecko API · Free' },
     { label:'Last Update', value: dashData.updated_at ? new Date(dashData.updated_at+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—',
-      sub: 'Auto-refresh 5min', cls:'white', note:'All sources updated together' },
+      sub: 'Auto-refresh 5 min', cls:'white', note:'All sources refreshed together · Cache: 5 min' },
   ];
   document.getElementById('macroPageGrid').innerHTML = cards.map(c => `
     <div class="macro-card">
@@ -927,20 +958,25 @@ function renderSheet(d) {
 
   // Indicators
   const rsi = f.rsi||{}, vix = f.vix||{}, pc = f.put_call||{}, fg = f.fear_greed||d.fear_greed||{};
+  const ycDisp  = ycf.value != null ? (ycf.value>0?'+':'') + ycf.value.toFixed(2)+'%' : '—';
+  const ycLabel = ycf.value == null ? 'N/A' : ycf.value > 0.5 ? 'Normal' : ycf.value < -0.3 ? 'Inverted' : 'Flat';
   const indBoxes = isCrypto ? `
     <div class="ind-box"><div class="ind-lbl">RSI</div><div class="ind-val ${rsiCls(rsi.value)}">${rsi.value??'—'}</div><div class="ind-sub ${rsiCls(rsi.value)}">${rsiLbl(rsi.value)}</div></div>
     <div class="ind-box"><div class="ind-lbl">Momentum</div><div class="ind-val ${f.momentum>0.1?'green':f.momentum<-0.1?'red':'yellow'}">${f.momentum!=null?(f.momentum>0?'+':'')+f.momentum:'—'}</div><div class="ind-sub ${f.momentum>0.1?'green':f.momentum<-0.1?'red':'yellow'}">${f.momentum>0.1?'Up':f.momentum<-0.1?'Down':'Side'}</div></div>
     <div class="ind-box"><div class="ind-lbl">Fear&amp;Greed</div><div class="ind-val ${fg.value<30?'red':fg.value>70?'green':'yellow'}">${fg.value??'—'}</div><div class="ind-sub ${fg.value<30?'red':fg.value>70?'green':'yellow'}">${fg.label??'N/A'}</div></div>
   ` : `
     <div class="ind-box"><div class="ind-lbl">RSI</div><div class="ind-val ${rsiCls(rsi.value)}">${rsi.value??'—'}</div><div class="ind-sub ${rsiCls(rsi.value)}">${rsiLbl(rsi.value)}</div></div>
-    <div class="ind-box"><div class="ind-lbl">VIX</div><div class="ind-val ${vix.value<15?'green':vix.value<20?'yellow':'red'}">${vix.value??'—'}</div><div class="ind-sub dim">Volatility</div></div>
-    <div class="ind-box"><div class="ind-lbl">Put/Call</div><div class="ind-val ${pc.value<0.7?'green':pc.value>1?'red':'yellow'}">${pc.value??'—'}</div><div class="ind-sub dim">CBOE</div></div>
+    <div class="ind-box"><div class="ind-lbl">VIX</div><div class="ind-val ${vix.value!=null&&vix.value<15?'green':vix.value<20?'yellow':'red'}">${vix.value??'—'}</div><div class="ind-sub dim">Volatility</div></div>
+    <div class="ind-box"><div class="ind-lbl">Put/Call</div><div class="ind-val ${pc.value!=null&&pc.value<0.7?'green':pc.value>1?'red':'yellow'}">${pc.value??'—'}</div><div class="ind-sub dim">SPY Options</div></div>
+    <div class="ind-box"><div class="ind-lbl">Yield Curve</div><div class="ind-val ${ycf.value!=null&&ycf.value>0.5?'green':ycf.value<-0.3?'red':'yellow'}">${ycDisp}</div><div class="ind-sub ${ycf.value!=null&&ycf.value>0.5?'green':ycf.value<-0.3?'red':'yellow'}">${ycLabel}</div></div>
   `;
 
   // Factor meters
+  const ycf = f.yield_curve || {};
   const factors = isCrypto
-    ? [['News',f.news_sentiment],['Momentum',f.momentum],['RSI',rsi.normalised],['F&G',fg.normalised]]
-    : [['News',f.news_sentiment],['Momentum',f.momentum],['RSI',rsi.normalised],['VIX',vix.normalised],['P/C',pc.normalised]];
+    ? [['News 20%',f.news_sentiment],['Momentum 20%',f.momentum],['RSI 20%',rsi.normalised],['F&G 40%',fg.normalised]]
+    : [['News 15%',f.news_sentiment],['Momentum 20%',f.momentum],['RSI 20%',rsi.normalised],
+       ['VIX 20%',vix.normalised],['P/C 15%',pc.normalised],['Yield 10%',ycf.normalised]];
   const meters = factors.map(([lbl,v]) => {
     if (v==null) return '';
     const c = v>0.05?'var(--green)':v<-0.05?'var(--red)':'var(--yellow)';
