@@ -9,6 +9,29 @@ import pandas as pd
 import yfinance as yf
 
 
+def normalize_close_series(prices) -> pd.Series:
+    """
+    Normalize yfinance close output into a 1D float Series.
+    yfinance may return Series, DataFrame (including multi-column), or unexpected scalar-like values.
+    """
+    if isinstance(prices, pd.DataFrame):
+        if prices.empty:
+            return pd.Series(dtype="float64")
+        series = prices.iloc[:, 0]
+    elif isinstance(prices, pd.Series):
+        series = prices
+    elif np.isscalar(prices):
+        return pd.Series(dtype="float64")
+    else:
+        try:
+            series = pd.Series(prices)
+        except Exception:
+            return pd.Series(dtype="float64")
+
+    series = pd.to_numeric(series, errors="coerce").dropna()
+    return series.astype("float64")
+
+
 def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     delta = close.diff()
     gains = delta.clip(lower=0).rolling(period).mean()
@@ -28,8 +51,12 @@ def rsi_to_normalized_score(rsi: pd.Series) -> pd.Series:
     return out
 
 
-def compute_signals(prices: pd.Series) -> pd.DataFrame:
-    frame = pd.DataFrame({"close": prices.dropna()})
+def compute_signals(prices) -> pd.DataFrame:
+    close = normalize_close_series(prices)
+    if close.empty:
+        return pd.DataFrame(columns=["close", "ret", "momentum", "rsi", "rsi_norm", "score", "signal", "position"])
+
+    frame = close.to_frame(name="close")
     frame["ret"] = frame["close"].pct_change().fillna(0)
     frame["momentum"] = (frame["close"].pct_change(5).fillna(0) * 10).clip(-1, 1)
     frame["rsi"] = compute_rsi(frame["close"])
@@ -85,6 +112,9 @@ def run_symbol_backtest(symbol: str, start: str, end: str, transaction_cost_bps:
         return {"symbol": symbol, "error": "No price data"}
 
     signals = compute_signals(data["Close"])
+    if signals.empty:
+        return {"symbol": symbol, "error": "No usable close data"}
+
     position_change = signals["position"].diff().abs().fillna(0)
     tx_cost = position_change * (transaction_cost_bps / 10000.0)
 
