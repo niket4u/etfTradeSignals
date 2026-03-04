@@ -168,7 +168,8 @@
   /* Skeleton */
   .skel { background: var(--surf); border: 1px solid var(--border); border-radius: 4px; height: 110px; animation: shimmer 1.4s infinite; }
   @keyframes shimmer { 0%,100%{opacity:0.45} 50%{opacity:0.9} }
-  @keyframes fadeUp  { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes fadeUp  { from{transform:translateY(8px)} to{transform:translateY(0)} }
+  @media (prefers-reduced-motion: reduce) { .card { animation: none; } }
 
   /* ── Bottom nav ── */
   .bottom-nav {
@@ -564,10 +565,10 @@ setInterval(updateClock, 10000); updateClock();
 let currentPage = 'signals';
 function showPage(page) {
   currentPage = page;
-  document.getElementById('mainPage').style.display      = page === 'signals'   ? '' : 'none';
-  document.getElementById('macroPage').style.display     = page === 'macro'     ? '' : 'none';
-  document.getElementById('portfolioPage').style.display = page === 'portfolio' ? '' : 'none';
-  document.getElementById('addPage').style.display       = page === 'add'       ? '' : 'none';
+  document.getElementById('mainPage').style.display      = page === 'signals'   ? 'block' : 'none';
+  document.getElementById('macroPage').style.display     = page === 'macro'     ? 'block' : 'none';
+  document.getElementById('portfolioPage').style.display = page === 'portfolio' ? 'block' : 'none';
+  document.getElementById('addPage').style.display       = page === 'add'       ? 'block' : 'none';
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const navMap = { signals:'nav-signals', macro:'nav-macro', portfolio:'nav-portfolio', add:'nav-add' };
   document.getElementById(navMap[page] || 'nav-signals')?.classList.add('active');
