@@ -280,6 +280,78 @@
   .mc-card-sub   { font-size: 10px; margin-top: 4px; }
   .mc-card-note  { font-size: 9px; color: var(--dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 
+  /* ── Portfolio page ── */
+  #portfolioPage { display: none; }
+  .pf-summary {
+    background: var(--surf); border: 1px solid var(--border); border-radius: 4px;
+    padding: 16px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .pf-sum-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
+  .pf-sum-value { font-family: Arial, Helvetica, sans-serif; font-size: 22px; font-weight: 800; color: #fff; }
+  .pf-sum-pnl   { font-size: 13px; font-weight: 700; margin-top: 2px; }
+  .pf-sum-pnl.pos { color: var(--green); }
+  .pf-sum-pnl.neg { color: var(--red); }
+  .pf-pos-row {
+    background: var(--surf2); border-radius: 3px; margin-bottom: 2px;
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .pf-pos-ticker { font-weight: 800; font-size: 13px; color: var(--accent); width: 72px; flex-shrink: 0; }
+  .pf-pos-detail { flex: 1; font-size: 10px; color: var(--dim); }
+  .pf-pos-detail strong { color: var(--text); font-size: 12px; }
+  .pf-pos-pnl   { text-align: right; font-size: 12px; font-weight: 700; }
+  .pf-pos-pnl.pos { color: var(--green); }
+  .pf-pos-pnl.neg { color: var(--red); }
+  .pf-remove-btn {
+    background: none; border: 1px solid var(--border); color: var(--dim);
+    font-size: 11px; padding: 2px 7px; border-radius: 3px; cursor: pointer;
+  }
+  .pf-remove-btn:hover { border-color: var(--red); color: var(--red); }
+  .month-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; background: var(--surf2); border-radius: 3px; margin-bottom: 2px;
+  }
+  .month-label { font-size: 11px; color: var(--text); }
+  .month-value { font-size: 11px; color: var(--dim); }
+  .month-gain  { font-size: 12px; font-weight: 700; }
+  .month-gain.pos { color: var(--green); }
+  .month-gain.neg { color: var(--red); }
+  .pf-add-card {
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: 4px; padding: 16px; margin-bottom: 14px;
+  }
+  .pf-add-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+  .pf-input-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; }
+  .pf-input {
+    background: var(--surf2); border: 1px solid var(--border); color: var(--text);
+    font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+    padding: 9px 10px; border-radius: 4px; outline: none; width: 100%;
+  }
+  .pf-input:focus { border-color: var(--accent); }
+  .pf-input::placeholder { color: var(--dim); }
+  .pf-add-btn {
+    background: var(--accent); color: var(--bg); font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px; font-weight: 700; padding: 9px 14px; border: none;
+    border-radius: 4px; cursor: pointer; white-space: nowrap;
+  }
+  .pf-add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pf-msg { font-size: 11px; margin-top: 10px; padding: 8px 10px; border-radius: 3px; }
+  .pf-msg.hidden  { display: none; }
+  .pf-msg.success { background: rgba(0,230,118,0.08); color: var(--green); border: 1px solid rgba(0,230,118,0.25); }
+  .pf-msg.error   { background: rgba(255,64,96,0.08);  color: var(--red);   border: 1px solid rgba(255,64,96,0.25); }
+  .pf-actions { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .pf-action-btn {
+    font-family: Arial, Helvetica, sans-serif; font-size: 11px; font-weight: 600;
+    padding: 7px 14px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border);
+    background: var(--surf2); color: var(--text);
+  }
+  .pf-action-btn.test  { border-color: var(--yellow); color: var(--yellow); }
+  .pf-action-btn.clear { border-color: var(--red);    color: var(--red); }
+  .pf-action-btn.snap  { border-color: var(--green);  color: var(--green); }
+  @media (max-width: 480px) {
+    .pf-input-row { grid-template-columns: 1fr 1fr; }
+    .pf-add-btn   { grid-column: span 2; }
+  }
+
   /* ── Add Asset page ── */
   #addPage { display: none; }
   .add-form-card {
@@ -401,6 +473,49 @@
     </div>
   </div>
 
+  <!-- Portfolio page -->
+  <div class="scroll-area" id="portfolioPage" style="display:none">
+    <!-- Summary -->
+    <div class="pf-summary">
+      <div>
+        <div class="pf-sum-label">Portfolio Value</div>
+        <div class="pf-sum-value" id="pfTotalValue">—</div>
+        <div class="pf-sum-pnl" id="pfTotalPnl">—</div>
+      </div>
+      <div style="text-align:right">
+        <div class="pf-sum-label">Invested</div>
+        <div style="font-size:14px;color:var(--dim)" id="pfTotalCost">—</div>
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="pf-actions">
+      <button class="pf-action-btn snap"  onclick="snapshotMonth()">📅 Record This Month</button>
+      <button class="pf-action-btn test"  onclick="loadTestData()">🧪 Load Test Data</button>
+      <button class="pf-action-btn clear" onclick="clearPortfolio()">🗑 Clear All</button>
+    </div>
+
+    <!-- Positions -->
+    <div class="sec-label"><span class="pulse-dot"></span>Open Positions</div>
+    <div id="pfPositions"><div class="tracked-empty">No positions yet. Add one below.</div></div>
+
+    <!-- Add position form -->
+    <div class="pf-add-card" style="margin-top:14px">
+      <div class="pf-add-label">Add Position</div>
+      <div class="pf-input-row">
+        <input class="pf-input" id="pfTicker"   placeholder="Ticker (e.g. SPY, BTC-USD)" autocapitalize="characters">
+        <input class="pf-input" id="pfQty"      placeholder="Qty"   type="number" step="any" min="0">
+        <input class="pf-input" id="pfAvgPrice" placeholder="Avg $" type="number" step="any" min="0">
+        <button class="pf-add-btn" id="pfAddBtn" onclick="addPosition()">+ Add</button>
+      </div>
+      <div id="pfMsg" class="pf-msg hidden"></div>
+    </div>
+
+    <!-- Monthly P&L -->
+    <div class="sec-label" style="margin-top:4px"><span class="pulse-dot"></span>Monthly P&amp;L</div>
+    <div id="pfMonthly"><div class="tracked-empty">No monthly records yet.</div></div>
+  </div>
+
   <!-- Bottom nav -->
   <nav class="bottom-nav">
     <button class="nav-btn active" id="nav-signals" onclick="showPage('signals')">
@@ -408,6 +523,9 @@
     </button>
     <button class="nav-btn" id="nav-macro" onclick="showPage('macro')">
       <span class="nav-icon">🌡</span><span>Macro</span>
+    </button>
+    <button class="nav-btn" id="nav-portfolio" onclick="showPage('portfolio')">
+      <span class="nav-icon">💼</span><span>Portfolio</span>
     </button>
     <button class="nav-btn" id="nav-add" onclick="showPage('add')">
       <span class="nav-icon">＋</span><span>Add</span>
@@ -445,14 +563,16 @@ setInterval(updateClock, 10000); updateClock();
 let currentPage = 'signals';
 function showPage(page) {
   currentPage = page;
-  document.getElementById('mainPage').style.display  = page === 'signals' ? '' : 'none';
-  document.getElementById('macroPage').style.display = page === 'macro'   ? '' : 'none';
-  document.getElementById('addPage').style.display   = page === 'add'     ? '' : 'none';
+  document.getElementById('mainPage').style.display      = page === 'signals'   ? '' : 'none';
+  document.getElementById('macroPage').style.display     = page === 'macro'     ? '' : 'none';
+  document.getElementById('portfolioPage').style.display = page === 'portfolio' ? '' : 'none';
+  document.getElementById('addPage').style.display       = page === 'add'       ? '' : 'none';
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  const navMap = { signals: 'nav-signals', macro: 'nav-macro', add: 'nav-add' };
+  const navMap = { signals:'nav-signals', macro:'nav-macro', portfolio:'nav-portfolio', add:'nav-add' };
   document.getElementById(navMap[page] || 'nav-signals')?.classList.add('active');
-  if (page === 'macro' && !macroRendered) renderMacroPage();
-  if (page === 'add') loadTrackedAssets();
+  if (page === 'macro'     && !macroRendered) renderMacroPage();
+  if (page === 'add')       loadTrackedAssets();
+  if (page === 'portfolio') loadPortfolio();
 }
 
 // ── Data ──────────────────────────────────────────────────────────────────
@@ -767,6 +887,145 @@ document.getElementById('sheet').addEventListener('touchend', e => {
   const dy = e.changedTouches[0].clientY - swipeStartY;
   if (dy > 80) closeSheet();
 }, {passive:true});
+
+// ── Portfolio ─────────────────────────────────────────────────────────────
+async function loadPortfolio() {
+  try {
+    const [pRes, mRes] = await Promise.all([
+      fetch('/api/portfolio'), fetch('/api/portfolio/monthly')
+    ]);
+    const pData = await pRes.json();
+    const mData = await mRes.json();
+    renderPortfolioSummary(pData.summary);
+    renderPositions(pData.positions);
+    renderMonthly(mData.monthly);
+  } catch(e) {
+    document.getElementById('pfPositions').innerHTML =
+      '<div class="tracked-empty error">Failed to load portfolio.</div>';
+  }
+}
+
+function renderPortfolioSummary(s) {
+  if (!s) return;
+  document.getElementById('pfTotalValue').textContent = '$' + fmt(s.total_value);
+  document.getElementById('pfTotalCost').textContent  = '$' + fmt(s.total_cost);
+  const pnlEl = document.getElementById('pfTotalPnl');
+  if (s.total_pnl != null) {
+    const sign = s.total_pnl >= 0 ? '+' : '';
+    pnlEl.textContent = `${sign}$${fmt(s.total_pnl)} (${sign}${s.total_pnl_pct}%)`;
+    pnlEl.className   = 'pf-sum-pnl ' + (s.total_pnl >= 0 ? 'pos' : 'neg');
+  }
+}
+
+function renderPositions(positions) {
+  const el = document.getElementById('pfPositions');
+  if (!positions || positions.length === 0) {
+    el.innerHTML = '<div class="tracked-empty">No positions yet.</div>'; return;
+  }
+  el.innerHTML = positions.map(p => {
+    const price   = p.current_price != null ? '$' + fmt(p.current_price) : '—';
+    const pnlSign = p.pnl >= 0 ? '+' : '';
+    const pnlStr  = p.pnl != null ? `${pnlSign}$${fmt(p.pnl)} (${pnlSign}${p.pnl_pct}%)` : '—';
+    const pnlCls  = p.pnl == null ? '' : p.pnl >= 0 ? 'pos' : 'neg';
+    return `<div class="pf-pos-row">
+      <div class="pf-pos-ticker">${esc(p.ticker)}</div>
+      <div class="pf-pos-detail">
+        <strong>${p.qty} @ $${fmt(p.avg_price)}</strong><br>
+        Now: ${price} · Value: ${p.value != null ? '$'+fmt(p.value) : '—'}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div class="pf-pos-pnl ${pnlCls}">${pnlStr}</div>
+        <button class="pf-remove-btn" onclick="removePosition('${esc(p.ticker)}')">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderMonthly(monthly) {
+  const el = document.getElementById('pfMonthly');
+  if (!monthly || monthly.length === 0) {
+    el.innerHTML = '<div class="tracked-empty">No monthly records. Click "Record This Month" to save a snapshot.</div>';
+    return;
+  }
+  el.innerHTML = [...monthly].reverse().map(m => {
+    const sign   = m.gain >= 0 ? '+' : '';
+    const gainCls = m.gain >= 0 ? 'pos' : 'neg';
+    return `<div class="month-row">
+      <span class="month-label">${m.month}</span>
+      <span class="month-value">$${fmt(m.total_value)}</span>
+      <span class="month-gain ${gainCls}">${sign}$${fmt(m.gain)} (${sign}${m.gain_pct}%)</span>
+    </div>`;
+  }).join('');
+}
+
+async function addPosition() {
+  const ticker   = document.getElementById('pfTicker').value.trim().toUpperCase();
+  const qty      = parseFloat(document.getElementById('pfQty').value);
+  const avgPrice = parseFloat(document.getElementById('pfAvgPrice').value);
+  const btn      = document.getElementById('pfAddBtn');
+  const msg      = document.getElementById('pfMsg');
+  if (!ticker || isNaN(qty) || isNaN(avgPrice)) {
+    showPfMsg('Fill in all three fields.', true); return;
+  }
+  btn.disabled = true; btn.textContent = 'Adding…';
+  try {
+    const r = await fetch('/api/portfolio/add', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ticker, qty, avg_price: avgPrice})
+    });
+    const d = await r.json();
+    if (r.ok) {
+      showPfMsg(`✓ Added ${d.ticker} — ${d.qty} @ $${fmt(d.avg_price)}`, false);
+      document.getElementById('pfTicker').value = '';
+      document.getElementById('pfQty').value = '';
+      document.getElementById('pfAvgPrice').value = '';
+      loadPortfolio();
+    } else { showPfMsg(d.error || 'Failed.', true); }
+  } catch { showPfMsg('Network error.', true); }
+  finally { btn.disabled = false; btn.textContent = '+ Add'; }
+}
+
+async function removePosition(ticker) {
+  await fetch('/api/portfolio/remove', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ticker})
+  });
+  loadPortfolio();
+}
+
+async function snapshotMonth() {
+  const r = await fetch('/api/portfolio/snapshot', {method:'POST'});
+  const d = await r.json();
+  if (r.ok) { showPfMsg(`✓ Recorded ${d.month}: $${fmt(d.total_value)}`, false); loadPortfolio(); }
+  else       { showPfMsg(d.error || 'Failed.', true); }
+}
+
+async function loadTestData() {
+  if (!confirm('This will replace all positions and monthly history with test data. Continue?')) return;
+  const r = await fetch('/api/portfolio/test-data', {method:'POST'});
+  const d = await r.json();
+  if (r.ok) { showPfMsg(`✓ Loaded ${d.loaded} test positions + ${d.months} months history`, false); loadPortfolio(); }
+  else       { showPfMsg('Failed to load test data.', true); }
+}
+
+async function clearPortfolio() {
+  if (!confirm('Clear all positions and monthly history?')) return;
+  await fetch('/api/portfolio/clear', {method:'POST'});
+  showPfMsg('Cleared.', false);
+  loadPortfolio();
+}
+
+function showPfMsg(text, isError) {
+  const el = document.getElementById('pfMsg');
+  el.textContent = text;
+  el.className   = 'pf-msg ' + (isError ? 'error' : 'success');
+  setTimeout(() => { el.className = 'pf-msg hidden'; }, 4000);
+}
+
+function fmt(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────
 loadDashboard();

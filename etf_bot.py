@@ -12,7 +12,11 @@ import requests as req_lib
 import yfinance as yf
 from textblob import TextBlob
 from config import get_free_port, NEWS_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ALLOWED_SMS_NUMBERS
-from trade_manager import add_ticker as _add_ticker, log_trade, TICKERS_FILE
+from trade_manager import (
+    add_ticker as _add_ticker, log_trade, TICKERS_FILE,
+    get_positions, upsert_position, remove_position, clear_positions,
+    get_monthly_pnl, record_monthly_pnl, clear_monthly_pnl,
+)
 from alerts import send_alert
 
 app = Flask(__name__)
@@ -484,6 +488,120 @@ def serve_icon(icon_name):
             f"font-size='{size//4}' fill='#00d4ff' text-anchor='middle' "
             f"dominant-baseline='middle'>SIG</text></svg>")
     return Response(svg, mimetype="image/svg+xml")
+
+
+# ── Routes: Portfolio ────────────────────────────────────────────────────────
+_CRYPTO_TICKERS = {"BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "DOGE-USD"}
+
+def _fetch_price(ticker):
+    try:
+        return round(float(yf.Ticker(ticker).fast_info.last_price), 4)
+    except Exception:
+        return None
+
+@app.route("/api/portfolio")
+def api_portfolio():
+    positions = get_positions()
+    enriched, total_cost, total_value = [], 0.0, 0.0
+    for p in positions:
+        price     = _fetch_price(p["ticker"])
+        cost      = round(p["qty"] * p["avg_price"], 2)
+        value     = round(p["qty"] * price, 2) if price else None
+        pnl       = round(value - cost, 2)       if value is not None else None
+        pnl_pct   = round((pnl / cost) * 100, 2) if (pnl is not None and cost) else None
+        total_cost  += cost
+        total_value += value if value is not None else cost
+        enriched.append({**p, "current_price": price, "cost": cost,
+                          "value": value, "pnl": pnl, "pnl_pct": pnl_pct})
+    total_pnl     = round(total_value - total_cost, 2)
+    total_pnl_pct = round((total_pnl / total_cost) * 100, 2) if total_cost else 0.0
+    return jsonify({
+        "positions": enriched,
+        "summary": {
+            "total_cost":    round(total_cost, 2),
+            "total_value":   round(total_value, 2),
+            "total_pnl":     total_pnl,
+            "total_pnl_pct": total_pnl_pct,
+        },
+        "updated_at": datetime.utcnow().isoformat(),
+    })
+
+@app.route("/api/portfolio/add", methods=["POST"])
+def api_portfolio_add():
+    data = request.get_json(silent=True) or {}
+    ticker    = (data.get("ticker") or "").strip().upper()
+    try:
+        qty       = float(data.get("qty", 0))
+        avg_price = float(data.get("avg_price", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "qty and avg_price must be numbers."}), 400
+    if not ticker:
+        return jsonify({"error": "Ticker is required."}), 400
+    if qty <= 0 or avg_price <= 0:
+        return jsonify({"error": "qty and avg_price must be positive."}), 400
+    pos = upsert_position(ticker, qty, avg_price)
+    log_trade("BUY", ticker, avg_price, qty, source="portfolio-ui")
+    return jsonify(pos), 201
+
+@app.route("/api/portfolio/remove", methods=["POST"])
+def api_portfolio_remove():
+    data   = request.get_json(silent=True) or {}
+    ticker = (data.get("ticker") or "").strip().upper()
+    if not ticker:
+        return jsonify({"error": "Ticker is required."}), 400
+    remove_position(ticker)
+    return jsonify({"removed": ticker})
+
+@app.route("/api/portfolio/monthly")
+def api_portfolio_monthly():
+    return jsonify({"monthly": get_monthly_pnl()})
+
+@app.route("/api/portfolio/snapshot", methods=["POST"])
+def api_portfolio_snapshot():
+    """Record current portfolio value as this month's P&L entry."""
+    positions = get_positions()
+    total_cost, total_value = 0.0, 0.0
+    for p in positions:
+        price        = _fetch_price(p["ticker"])
+        total_cost  += p["qty"] * p["avg_price"]
+        total_value += p["qty"] * price if price else p["qty"] * p["avg_price"]
+    history     = get_monthly_pnl()
+    prev_value  = history[-1]["total_value"] if history else total_cost
+    gain        = round(total_value - prev_value, 2)
+    gain_pct    = round((gain / prev_value) * 100, 2) if prev_value else 0.0
+    month       = datetime.utcnow().strftime("%Y-%m")
+    record_monthly_pnl(month, round(total_value, 2), gain, gain_pct)
+    return jsonify({"month": month, "total_value": round(total_value, 2),
+                    "gain": gain, "gain_pct": gain_pct})
+
+@app.route("/api/portfolio/test-data", methods=["POST"])
+def api_portfolio_test_data():
+    """Load fake positions + monthly history for testing."""
+    clear_positions()
+    clear_monthly_pnl()
+    test_positions = [
+        ("SPY",    10,   600.00),
+        ("QQQ",     5,   380.00),
+        ("BTC-USD", 0.1, 45000.00),
+        ("ETH-USD", 1.0, 2500.00),
+    ]
+    for ticker, qty, avg_price in test_positions:
+        upsert_position(ticker, qty, avg_price)
+    test_monthly = [
+        ("2025-11", 16200, 200,  1.25),
+        ("2025-12", 17800, 1600, 9.88),
+        ("2026-01", 18500, 700,  3.93),
+        ("2026-02", 17100, -1400, -7.57),
+    ]
+    for month, total_value, gain, gain_pct in test_monthly:
+        record_monthly_pnl(month, total_value, gain, gain_pct)
+    return jsonify({"loaded": len(test_positions), "months": len(test_monthly)})
+
+@app.route("/api/portfolio/clear", methods=["POST"])
+def api_portfolio_clear():
+    clear_positions()
+    clear_monthly_pnl()
+    return jsonify({"cleared": True})
 
 
 # ── Routes: SMS webhook ───────────────────────────────────────────────────────
