@@ -91,6 +91,11 @@ def _fetch_url(url):
     except Exception:
         return ""
 
+def fetch_news_yahoo_ticker(ticker):
+    """Per-ticker Yahoo Finance RSS — same HTTP stack as yfinance, bypasses Pi-hole."""
+    url = f"https://finance.yahoo.com/rss/headline?s={ticker}"
+    return _parse_rss(_fetch_url(url))
+
 def fetch_rss_articles(keyword, reddit_key=""):
     articles = []
     with ThreadPoolExecutor(max_workers=5) as ex:
@@ -116,13 +121,15 @@ def fetch_newsapi(query):
     except Exception:
         return []
 
-def fetch_all_news(query, reddit_key=""):
-    with ThreadPoolExecutor(max_workers=2) as ex:
+def fetch_all_news(query, reddit_key="", ticker=""):
+    with ThreadPoolExecutor(max_workers=3) as ex:
         f1 = ex.submit(fetch_newsapi, query)
         f2 = ex.submit(fetch_rss_articles, query, reddit_key)
-        n, r = f1.result(), f2.result()
+        f3 = ex.submit(fetch_news_yahoo_ticker, ticker) if ticker else None
+    n, r = f1.result(), f2.result()
+    y = f3.result() if f3 else []
     seen, merged = set(), []
-    for a in n + r:
+    for a in n + y + r:          # Yahoo inserted before reddit for priority
         t = a.get("title", "")
         if t and t not in seen:
             seen.add(t)
@@ -217,23 +224,53 @@ def get_crypto_data(coin_id):
 
 
 # ── Signal builder ────────────────────────────────────────────────────────────
-def build_signal(news, momentum, rsi, vix=None, fear_greed=None, put_call=None, asset_type="ETF"):
-    rn = rsi.get("normalised", 0.0)
+def build_signal(news, news_available, momentum, rsi, vix=None, fear_greed=None, put_call=None, asset_type="ETF"):
+    """
+    Compute BUY/SELL/HOLD signal with dynamic weight redistribution.
+    When a data source is unavailable its weight is redistributed proportionally
+    across the sources that ARE available, so a 4/5 signal still uses 100% of
+    the available information rather than being silently dampened to 80%.
+    """
+    rn     = rsi.get("normalised", 0.0)
+    rsi_ok = rsi.get("available", False)
+
     if asset_type == "Crypto":
-        fn  = fear_greed["normalised"] if fear_greed and fear_greed["available"] else 0.0
-        s   = news * 0.20 + momentum * 0.20 + rn * 0.20 + fn * 0.40
-        fac = {"news_sentiment": round(news, 3), "momentum": round(momentum, 3),
-               "rsi": rsi, "fear_greed": fear_greed}
+        fg_ok = bool(fear_greed and fear_greed.get("available"))
+        fn    = fear_greed["normalised"] if fg_ok else 0.0
+        # Base weights: news=20%, momentum=20%, rsi=20%, fear_greed=40%
+        w = {"news": 0.20 * news_available, "momentum": 0.20,
+             "rsi":  0.20 * rsi_ok,         "fg":       0.40 * fg_ok}
+        total_w = sum(w.values()) or 1.0
+        s = (news * w["news"] + momentum * w["momentum"] +
+             rn   * w["rsi"]  + fn       * w["fg"]) / total_w
+        sources_active = sum([news_available, True, rsi_ok, fg_ok])
+        sources_total  = 4
+        fac = {"news_sentiment": round(news, 3), "news_available": news_available,
+               "momentum": round(momentum, 3), "rsi": rsi, "fear_greed": fear_greed}
     else:
-        vn  = vix["normalised"]      if vix      and vix["available"]      else 0.0
-        pn  = put_call["normalised"] if put_call and put_call["available"] else 0.0
-        s   = news * 0.20 + momentum * 0.20 + rn * 0.20 + vn * 0.20 + pn * 0.20
-        fac = {"news_sentiment": round(news, 3), "momentum": round(momentum, 3),
-               "rsi": rsi, "vix": vix, "put_call": put_call}
+        vix_ok = bool(vix      and vix.get("available"))
+        pc_ok  = bool(put_call and put_call.get("available"))
+        vn     = vix["normalised"]      if vix_ok else 0.0
+        pn     = put_call["normalised"] if pc_ok  else 0.0
+        # Base weights: all five factors at 20% each
+        w = {"news": 0.20 * news_available, "momentum": 0.20,
+             "rsi":  0.20 * rsi_ok,         "vix":      0.20 * vix_ok,
+             "pc":   0.20 * pc_ok}
+        total_w = sum(w.values()) or 1.0
+        s = (news * w["news"] + momentum * w["momentum"] +
+             rn   * w["rsi"]  + vn       * w["vix"] +
+             pn   * w["pc"]) / total_w
+        sources_active = sum([news_available, True, rsi_ok, vix_ok, pc_ok])
+        sources_total  = 5
+        fac = {"news_sentiment": round(news, 3), "news_available": news_available,
+               "momentum": round(momentum, 3), "rsi": rsi, "vix": vix, "put_call": put_call}
+
     s    = round(s, 3)
     sig, col = ("BUY", "green") if s > 0.15 else ("SELL", "red") if s < -0.15 else ("HOLD", "yellow")
     conf = min(int(abs(s) * 250), 95) if sig != "HOLD" else max(35, 65 - int(abs(s) * 100))
-    return {"signal": sig, "color": col, "confidence": conf, "score": s, "factors": fac}
+    return {"signal": sig, "color": col, "confidence": conf, "score": s,
+            "sources_active": sources_active, "sources_total": sources_total,
+            "factors": fac}
 
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
@@ -279,14 +316,15 @@ def get_macro():
 def _compute_etf_signal(ticker, macro):
     try:
         name = TRACKED_ETFS.get(ticker, ticker)
-        arts = fetch_all_news(f"{ticker} ETF {name}", reddit_key="etf")
+        arts = fetch_all_news(f"{ticker} ETF {name}", reddit_key="etf", ticker=ticker)
         ns, _ = analyze_sentiment(arts)
+        news_available = bool(arts)
         with ThreadPoolExecutor(max_workers=2) as ex:
             f_mom = ex.submit(get_etf_momentum, ticker)
             f_rsi = ex.submit(compute_rsi, ticker)
         mom = f_mom.result()
         rsi = f_rsi.result()
-        sig = build_signal(ns, mom, rsi, vix=macro["vix"], put_call=macro["put_call"], asset_type="ETF")
+        sig = build_signal(ns, news_available, mom, rsi, vix=macro["vix"], put_call=macro["put_call"], asset_type="ETF")
         try:
             price = round(float(yf.Ticker(ticker).fast_info.last_price), 2)
         except Exception:
@@ -302,12 +340,13 @@ def _compute_crypto_signal(coin_id, fg):
         sym  = TRACKED_CRYPTO[coin_id]
         arts = fetch_all_news(f"{coin_id} {sym} cryptocurrency", reddit_key="crypto")
         ns, _ = analyze_sentiment(arts)
+        news_available = bool(arts)
         with ThreadPoolExecutor(max_workers=2) as ex:
             f_cd  = ex.submit(get_crypto_data, coin_id)
             f_rsi = ex.submit(compute_rsi, CRYPTO_YF.get(coin_id, f"{sym}-USD"))
         cd  = f_cd.result()
         rsi = f_rsi.result()
-        sig = build_signal(ns, cd["momentum"], rsi, fear_greed=fg, asset_type="Crypto")
+        sig = build_signal(ns, news_available, cd["momentum"], rsi, fear_greed=fg, asset_type="Crypto")
         maybe_alert(sym, sig["signal"], cd["price"], "Crypto")
         return {"ticker": sym, "coin_id": coin_id, "name": f"{coin_id.title()} ({sym})",
                 "type": "Crypto", "price": cd["price"], "change24": cd["change24"], "signal": sig}
@@ -339,7 +378,8 @@ def api_dashboard():
     with ThreadPoolExecutor(max_workers=8) as ex:
         etf_futs    = [ex.submit(_compute_etf_signal,    t,  macro) for t in list(TRACKED_ETFS)]
         crypto_futs = [ex.submit(_compute_crypto_signal, c,  fg)    for c in list(TRACKED_CRYPTO)]
-    items = [f.result() for f in etf_futs + crypto_futs if f.result()]
+    results = [f.result() for f in etf_futs + crypto_futs]
+    items   = [r for r in results if r]
     return jsonify({
         "items": items,
         "summary": {
@@ -358,12 +398,13 @@ def api_etf(ticker):
     if ticker not in TRACKED_ETFS:
         abort(404)
     macro    = get_macro()
-    arts     = fetch_all_news(f"{ticker} ETF {TRACKED_ETFS[ticker]}", reddit_key="etf")
+    arts     = fetch_all_news(f"{ticker} ETF {TRACKED_ETFS[ticker]}", reddit_key="etf", ticker=ticker)
     ns, scored = analyze_sentiment(arts)
+    news_available = bool(arts)
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_mom = ex.submit(get_etf_momentum, ticker)
         f_rsi = ex.submit(compute_rsi, ticker)
-    sig = build_signal(ns, f_mom.result(), f_rsi.result(),
+    sig = build_signal(ns, news_available, f_mom.result(), f_rsi.result(),
                        vix=macro["vix"], put_call=macro["put_call"], asset_type="ETF")
     try:
         price = round(float(yf.Ticker(ticker).fast_info.last_price), 2)
@@ -383,12 +424,13 @@ def api_crypto(coin):
     fg   = get_crypto_fear_greed()
     arts = fetch_all_news(f"{coin} {sym} cryptocurrency", reddit_key="crypto")
     ns, scored = analyze_sentiment(arts)
+    news_available = bool(arts)
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_cd  = ex.submit(get_crypto_data, coin)
         f_rsi = ex.submit(compute_rsi, CRYPTO_YF.get(coin, f"{sym}-USD"))
     cd  = f_cd.result()
     rsi = f_rsi.result()
-    sig = build_signal(ns, cd["momentum"], rsi, fear_greed=fg, asset_type="Crypto")
+    sig = build_signal(ns, news_available, cd["momentum"], rsi, fear_greed=fg, asset_type="Crypto")
     maybe_alert(sym, sig["signal"], cd["price"], "Crypto")
     return jsonify({"ticker": sym, "coin_id": coin, "name": f"{coin.title()} ({sym})",
                     "type": "Crypto", "price": cd["price"], "change24": cd["change24"],
