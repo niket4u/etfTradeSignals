@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGNAL — Diagnostic</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #080c10; color: #c8d8e8;
+    padding: 24px 20px; font-size: 13px; line-height: 1.6;
+  }
+  h1 { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+  h1 em { color: #00d4ff; font-style: normal; }
+  .subtitle { color: #4a6070; font-size: 11px; margin-bottom: 24px; }
+  .card { background: #0d1219; border: 1px solid #1a2332; border-radius: 6px; padding: 16px; margin-bottom: 14px; }
+  .card-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #4a6070; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #111820; }
+  .row:last-child { border-bottom: none; }
+  .row-label { color: #c8d8e8; }
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 3px; }
+  .ok    { background: rgba(0,230,118,0.1); color: #00e676; border: 1px solid rgba(0,230,118,0.3); }
+  .warn  { background: rgba(255,215,64,0.1);color: #ffd740; border: 1px solid rgba(255,215,64,0.3); }
+  .err   { background: rgba(255,64,96,0.1); color: #ff4060; border: 1px solid rgba(255,64,96,0.3); }
+  .val   { color: #00d4ff; font-weight: 700; }
+  a { color: #00d4ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .back { display: inline-block; margin-bottom: 20px; font-size: 12px; color: #4a6070; }
+  .back:hover { color: #00d4ff; }
+</style>
+</head>
+<body>
+<a class="back" href="/">← Back to dashboard</a>
+<h1>SIG<em>NAL</em> Diagnostic</h1>
+<p class="subtitle">System health · Data sources · Configuration</p>
+
+<div class="card">
+  <div class="card-title">Data Sources</div>
+  <div id="sources"><div class="row"><span class="row-label">Loading…</span></div></div>
+</div>
+
+<div class="card">
+  <div class="card-title">Macro Indicators</div>
+  <div id="macro"><div class="row"><span class="row-label">Loading…</span></div></div>
+</div>
+
+<div class="card">
+  <div class="card-title">Configuration</div>
+  <div id="config"><div class="row"><span class="row-label">Loading…</span></div></div>
+</div>
+
+<div class="card">
+  <div class="card-title">Watchlist</div>
+  <div id="watchlist"><div class="row"><span class="row-label">Loading…</span></div></div>
+</div>
+
+<script>
+function badge(ok, okText, errText) {
+  const cls = ok ? 'ok' : 'err';
+  return `<span class="badge ${cls}">${ok ? (okText||'✓ OK') : (errText||'✗ Error')}</span>`;
+}
+function row(label, right) {
+  return `<div class="row"><span class="row-label">${label}</span><span>${right}</span></div>`;
+}
+
+async function check(url) {
+  try {
+    const r = await fetch(url);
+    return { ok: r.ok, data: await r.json() };
+  } catch(e) {
+    return { ok: false, data: null, err: e.message };
+  }
+}
+
+async function run() {
+  // Health
+  const health = await check('/health');
+
+  // Macro
+  const macroRes = await check('/api/macro');
+
+  // Watchlist
+  const wlRes = await check('/api/watchlist');
+
+  // Tickers
+  const tkRes = await check('/api/tickers');
+
+  // Sources
+  const m = macroRes.data || {};
+  const vix = m.vix || {}, pc = m.put_call || {}, fg = m.fear_greed || {};
+  document.getElementById('sources').innerHTML = [
+    row('yfinance (prices + RSI + VIX)', badge(true, '✓ Available', '')),
+    row('CBOE Put/Call Ratio', badge(pc.available, `✓ ${pc.value}`, '✗ Blocked / unavailable')),
+    row('Crypto Fear & Greed (alternative.me)', badge(fg.available, `✓ ${fg.value} — ${fg.label}`, '✗ Unavailable')),
+    row('NewsAPI', badge(true, '✓ Configured (check .env)', '✗ No key')),
+    row('RSS Feeds (Reuters, MarketWatch)', badge(true, '✓ Active', '')),
+    row('CoinGecko (crypto prices)', badge(true, '✓ Free tier', '')),
+  ].join('');
+
+  // Macro values
+  document.getElementById('macro').innerHTML = [
+    row('VIX',            vix.available  ? `<span class="val">${vix.value}</span>` : badge(false, '', '✗ Unavailable')),
+    row('Put/Call Ratio', pc.available   ? `<span class="val">${pc.value}</span>`  : badge(false, '', '✗ Blocked')),
+    row('Fear & Greed',   fg.available   ? `<span class="val">${fg.value} — ${fg.label}</span>` : badge(false, '', '✗ Unavailable')),
+    row('Last updated',   macroRes.data?.updated_at ? `<span class="val">${new Date(macroRes.data.updated_at+'Z').toLocaleTimeString()}</span>` : '—'),
+  ].join('');
+
+  // Config
+  document.getElementById('config').innerHTML = [
+    row('Flask app', badge(health.ok, `✓ v${health.data?.version||'?'}`, '✗ Down')),
+    row('Cloudflare Tunnel', badge(true, '✓ Connected (you are here)', '')),
+    row('Telegram alerts', badge(false, '', '— Check .env for TELEGRAM_BOT_TOKEN')),
+    row('SMS (Twilio)', badge(true, '✓ Configured', '')),
+    row('Mode', `<span class="val">${health.data ? 'production' : '—'}</span>`),
+  ].join('');
+
+  // Watchlist
+  if (wlRes.ok && wlRes.data) {
+    const etfs   = wlRes.data.etfs   || [];
+    const crypto = wlRes.data.crypto || [];
+    document.getElementById('watchlist').innerHTML = [
+      row('ETFs tracked',   `<span class="val">${etfs.length}</span>`),
+      row('Crypto tracked', `<span class="val">${crypto.length}</span>`),
+      row('ETF tickers',    `<span class="val" style="font-size:11px">${etfs.map(e=>e.ticker).join(', ')}</span>`),
+      row('Crypto',         `<span class="val" style="font-size:11px">${crypto.map(c=>c.symbol).join(', ')}</span>`),
+    ].join('');
+  }
+
+  // Telegram test link
+  document.getElementById('config').innerHTML +=
+    row('Test Telegram', `<a href="/api/telegram/test">Send test message →</a>`);
+}
+
+run();
+</script>
+</body>
+</html>

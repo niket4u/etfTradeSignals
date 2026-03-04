@@ -8,4 +8,4 @@ imaplib2
 pandas
 matplotlib
 requests
-nginx
+textblob
